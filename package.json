@@ -25,7 +25,7 @@
     "discord-buttons-v13": "^4.0.2",
     "discord-canvas": "*",
     "discord-youtube-api": "^0.1.0",
-    "discord.js": "13.6",
+    "discord.js": "^13.10.3",
     "discord.js-commando": "*",
     "express": "^4.17.3",
     "ffmpeg": "^0.0.4",
