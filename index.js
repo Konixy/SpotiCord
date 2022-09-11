@@ -12,11 +12,11 @@ const { Routes } = require('discord-api-types/v9');
 const config = require('./config.js');
 const logger = require('./logger.js');
 
-const Spotify = require('spotifydl-core')
-const spDl = new Spotify.default({
+const Spotify = require('spotifydl-core').default;
+const spDl = new Spotify({
 	clientId: config.spotifyClientId,
 	clientSecret: config.spotifyClientSecret
-});
+})
 const SpotifyFinder = require('spotify-get');
 const spSr = new SpotifyFinder({
 	consumer: {
@@ -24,7 +24,7 @@ const spSr = new SpotifyFinder({
 		secret: config.spotifyClientSecret
 	}
 })
-const audioEncoder = require('audio-encoder');
+const stream = require('stream');
 const colors = require('colors');
 const fs = require('fs');
 const moment = require('moment');
@@ -75,6 +75,18 @@ const commands = [
 				type: 3, required: true
 			}
 		]
+	},
+	{
+		name: "playlist",
+		category: "music",
+		description: "Recherche un album sur Spotify puis le joue",
+		options: [
+			{
+				name: "album",
+				description: "Nom ou id d'un album",
+				type: 3, required: true
+			}
+		]
 	}
 ];
 
@@ -119,6 +131,7 @@ let afk = false;
 
 const Topgg = require("@top-gg/sdk");
 const { randomUUID } = require('crypto');
+const { OpusEncoder } = require('@discordjs/opus');
 const webhook = new Topgg.Webhook("Kr&6dGbqHmBqTK5C")
 
 app.get('/', (req, res) => {
@@ -201,12 +214,13 @@ function sendEmbed(interaction, embedTitle, embedDescription, embedColorParam) {
  * @param {String} embedDescription
  */
  function reply(interaction, embedTitle, embedDescription) {
-	if(interaction.replied || !embedTitle && !embedDescription) return logger.error('[sendEmbed function ERROR] invalid arguments')
+	if(!embedTitle && !embedDescription) return logger.error('[sendEmbed function ERROR] invalid arguments')
 	const embed = new Discord.MessageEmbed()
 	if(embedTitle) embed.setTitle(embedTitle);
 	embed.setColor(embedColor);
 	if(embedDescription) embed.setDescription(embedDescription);
-	return interaction.reply({embeds: [embed]});
+	if(interaction.replied) return interaction.channel.send({embeds: [embed]})
+	else return interaction.reply({embeds: [embed]});
 }
 
 
@@ -263,7 +277,7 @@ function writeQueue(guildId) {
 
 	let queue = {
 		previous: server.lastVideo,
-		current: server.currentVideo,
+		current: server.currentTrack,
 		next: server.queue
 	};
 
@@ -277,7 +291,7 @@ function writeQueue(guildId) {
 }
 
 /**
- * Play a YouTube video in the current channel
+ * Play a Spotify track in the current voice channel
  * @param {Discord.CommandInteraction} interaction 
  * @param {String} msg - Return the String "none" to don't send any message
  * @param {Boolean} noShift 
@@ -289,31 +303,9 @@ async function playTrack(interaction, msg, noShift, playAt) {
 	if(!server.currentTrack.id) return;
 	const trackData = await spSr.getTrack(server.currentTrack.id);
 
-	if(!msg) {
-		let artists = []
-		trackData.artists.forEach(e => artists.push(e.name))
-		sendEmbed(interaction, `<a:loader:1018219179557539980> Chargement de : \`${server.currentTrack.name}\` de \`${artists.join(', ')}\``)
-	}
-
 	let audioPlayer = createAudioPlayer();
 
-	// let video = await ytdl(server.currentVideo.url, {
-	// 	quality: 'highestaudio',
-	// 	filter: "audioonly",
-	// 	requestOptions: {
-	// 		headers: {
-	// 			'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36',
-	// 			cookie: ytCookie
-	// 		}
-	// 	},
-	// 	highWaterMark: 1 >> 25,
-	// })
-
-	let trackBuffer = await spDl.downloadTrack(server.currentTrack.id, 'test.mp3');
-
-	let player = await fluentFfmpeg({source: trackBuffer}).toFormat('mp3');
-
-	if(playAt > 0) player.setStartTime(Math.round(playAt/1000))
+	const player = spDl.downloadTrack(server.currentTrack.id, undefined);
 
 	const voiceChannel = interaction.member.voice.channel;
 	const connection = getVoiceConnection(interaction.guild.id);
@@ -322,60 +314,22 @@ async function playTrack(interaction, msg, noShift, playAt) {
 	audioPlayer.play(resource);
 	server.startedDate = Date.now()
 
-	
-
 	audioPlayer.on('error', async error => {
 		if(error.message.includes('Status code: 410')) {
-			sendEmbed(message, ':warning: Cette vidéo ne peut être lu car elle est soumise a une limite d\'age.')
+			sendEmbed(interaction, ':warning: Cette vidéo ne peut être lu car elle est soumise a une limite d\'age.')
 			if(server.queue[0]) {
-				server.lastVideo = server.currentVideo
-				server.currentVideo = server.queue[0]
+				server.lastTrack = server.currentTrack
+				server.currentTrack = server.queue[0]
 				server.queue.shift()
-				return runVideo(message, ":track_next: Musique en cours : `" + server.currentVideo.title + "`", true)
+				return playTrack(interaction, "none", true)
 			} else {
-				server.lastVideo = server.currentVideo
-				server.currentVideo = {
+				server.lastTrack = server.currentTrack
+				server.currentTrack = {
 					title: 'Rien pour le moment.',
 					url: ''
 				}
 			}
 
-		} else if (error.message.includes('aborted') || error.message.includes('write after end')) {
-			logger.log(error.message.includes('aborted') ? "aborted" : (error.message.includes('write after end') ? "write after end" : ""))
-			server.isCrashed = true;
-
-			// runVideo(message, 'none', true, error.resource.playbackDuration || Date.now() - server.startedDate)
-			audioPlayer.stop()
-			audioPlayer = createAudioPlayer();
-			video.destroy()
-			video = await ytdl(server.currentVideo.url, {
-				quality: 'highestaudio',
-				filter: "audioonly",
-				range: {
-					start: error.resource.playbackDuration || resource.playbackDuration
-				}
-			})
-
-			// player = await fluentFfmpeg({source: video}).toFormat('mp3');
-
-			// player.setStartTime((error.resource.playbackDuration || Date.now() - server.startedDate)/1000)
-
-			const resource = createAudioResource(video, { inlineVolume: true });
-			audioPlayer.play(resource);
-			server.startedDate = Date.now()
-						
-			connection.subscribe(audioPlayer);
-
-			server.dispatcher = audioPlayer;
-			server.connection = connection;
-			server.resource = resource
-			afk = false
-			await entersState(audioPlayer, AudioPlayerStatus.Playing, 5_000);
-			
-			
-			setTimeout(() => {
-				server.isCrashed = false;
-			}, 10000)
 		} else {
 			logger.log(error)
 			if(server.tries >= 3) {
@@ -404,23 +358,20 @@ async function playTrack(interaction, msg, noShift, playAt) {
 	server.connection = connection;
 	server.resource = resource
 	afk = false
-	await entersState(audioPlayer, AudioPlayerStatus.Playing, 5_000);
 
 	if(!noShift) server.queue.shift();
-	// writeQueue(message.guild.id)
 
 	audioPlayer.once(AudioPlayerStatus.Idle, () => {
-		if(server.isCrashed) return;
 		if (server.queue[0]) {
-			server.lastVideo = server.currentVideo
-			server.currentVideo = server.queue[0];
-			return runVideo(message);
+			server.lastTrack = server.currentTrack
+			server.currentTrack = server.queue[0];
+			return playTrack(interaction);
 		} else {
-			server.lastVideo = server.currentVideo
-			server.currentVideo = ({
-				title: 'Rien pour le moment.',
-				url: ''
-			})
+			server.lastTrack = server.currentTrack
+			server.currentTrack = {
+				name: 'Rien pour le moment.',
+				id: ''
+			}
 			afk = true;
 			setTimeout(() => {
 				if(afk === false) return
@@ -440,22 +391,20 @@ async function playTrack(interaction, msg, noShift, playAt) {
 		// writeQueue(message.guild.id)
 	});
 
-	client.on('voiceStateUpdate', (oldState, newState) => {
-		if (oldState.member.user.bot) return;
-		if (oldState.channelId === null || typeof oldState.channelId == 'undefined') return;
-		if(oldState.channelId !== voiceChannel.id) return
-		if(message.guild.channels.cache.get(oldState.channelId).members.size === 1) {
-			afk = true;
-			setTimeout(() => {
-				if(afk === false) return
-				afk = false
-				if(connection.state.status !== 'ready') return;
-				connection.destroy()
-			}, 30000)
-		}
-	})
-
-	console.log(await spSr.getTrack(server.currentTrack.id))
+	// client.on('voiceStateUpdate', (oldState, newState) => {
+	// 	if (oldState.member.user.bot) return;
+	// 	if (oldState.channelId === null || typeof oldState.channelId == 'undefined') return;
+	// 	if(oldState.channelId !== voiceChannel.id) return
+	// 	if(message.guild.channels.cache.get(oldState.channelId).members.size === 1) {
+	// 		afk = true;
+	// 		setTimeout(() => {
+	// 			if(afk === false) return
+	// 			afk = false
+	// 			if(connection.state.status !== 'ready') return;
+	// 			connection.destroy()
+	// 		}, 30000)
+	// 	}
+	// })
 
 	if(!msg) {
 		const trackData = await spSr.getTrack(server.currentTrack.id);
@@ -504,7 +453,7 @@ client.on("interactionCreate", async interaction => {
 			queue: [], //loadedQueue.next,
 			currentTrack: {
 				name: "Rien pour le moment.",
-				id: ""
+				url: ""
 			}, //loadedQueue.current,
 			lastTrack: {name:"",id:""}, //loadedQueue.previous,
 			dispatcher: null,
@@ -518,12 +467,13 @@ client.on("interactionCreate", async interaction => {
 				enabled: data.djOnly.enabled,
 				role: djOnlyRole || null
 			},
-			isCrashed: false,
 			startedDate: null,
 		});
 	}
 
 	const server = servers.get(serverId);
+
+	logger.command(`${interaction.user.tag} issued command /${command}${args.map(e=>e=` ${e.name}="${e.value}"`).join('')}`)
 
 	// ping
 	if (command === "ping") {
@@ -630,51 +580,33 @@ client.on("interactionCreate", async interaction => {
 			reply(interaction, `:white_check_mark: Connecté a \`${voiceChannel.name}\``)
 		}
 
-		// if(spDl.getTrack(args.join(' '))) {
-		// 	const result = await spDl.getTrack(args.join(' '))
-		// 	console.log(result)
-		// 	// const foundVideo = {
-		// 	// 	url: result.baseUrl,
-		// 	// 	title: await decodeEntities(result.t),
-		// 	// 	duration: results.results[0].duration
-		// 	// };
+		spSr.search({
+			q: args[0].value,
+			type: "track",
+			limit: 1
+		}).then(async (results) => {
+			if (results.tracks.items[0]) {
+				const foundTrack = {
+					url: results.tracks.items[0].external_urls.spotify,
+					id: results.tracks.items[0].id,
+					name: results.tracks.items[0].name,
+					duration: results.tracks.items[0].duration_ms
+				};
 
-		// 	// if (server.currentVideo.url != "") {
-		// 	// 	server.queue.push(foundVideo);
-		// 	// 	return sendEmbed(interaction, ":white_check_mark: " + "`" + foundVideo.title + "`" + " - Ajouté à la file d'attente")
-		// 	// }
-		// 	// server.currentVideo = foundVideo;
-		// 	// runVideo(interaction);
-		// } else {
-			spSr.search({
-				q: args[0].value,
-				type: "track",
-				limit: 1
-			}).then(async (results) => {
-				if (results.tracks.items[0]) {
-					const foundTrack = {
-						id: results.tracks.items[0].id,
-						name: results.tracks.items[0].name,
-						duration: results.tracks.items[0].duration_ms
-					};
-
-					console.log(foundTrack)
-	
-					if (server.currentTrack.id != "") {
-						server.queue.push(foundTrack);
-						return reply(interaction, ":white_check_mark: " + "`" + foundTrack.name + "`" + " - Ajouté à la file d'attente")
-					}
-					server.currentTrack = foundTrack;
-					playTrack(interaction);
-				} else {
-					sendEmbed(interaction, ':x: Aucune vidéo trouvé !');
+				if (server.currentTrack.id != "") {
+					server.queue.push(foundTrack);
+					return reply(interaction, ":white_check_mark: " + "`" + foundTrack.name + "`" + " - Ajouté à la file d'attente")
 				}
-			}).catch(error => {
-				if(error == 'Error: Request failed with status code 403') {
-					return sendEmbed(interaction, ':x: Le bot est temporairement infonctionnel du a une limite de recherche quotidienne.', 'Nous sommes vraiment désolé et faisont tout notre possible pour regler ce genre de problèmes.')
-				} else logger.error(error)
-			})
-		// }
+				server.currentTrack = foundTrack;
+				playTrack(interaction);
+			} else {
+				reply(interaction, ':x: Aucune vidéo trouvé !');
+			}
+		}).catch(error => {
+			if(error == 'Error: Request failed with status code 403') {
+				return reply(interaction, ':x: Le bot est temporairement infonctionnel du a une limite de recherche quotidienne.', 'Nous sommes vraiment désolé et faisont tout notre possible pour regler ce genre de problèmes.')
+			} else logger.error(error)
+		})
 
 	}
 
@@ -684,9 +616,9 @@ client.on("interactionCreate", async interaction => {
 
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
@@ -699,94 +631,98 @@ client.on("interactionCreate", async interaction => {
 			}, 1000)
 		} else if (server.cooldown === true) {
       server.timeout.refresh()
-			return sendEmbed(message, ':hourglass: Veuillez attendre 1 seconde avant de réutiliser cette commande.')
+			return reply(interaction, ':hourglass: Veuillez attendre 1 seconde avant de réutiliser cette commande.')
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
-		const voiceChannel = message.member.voice.channel
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
+		const voiceChannel = interaction.member.voice.channel
 
 		if (!voiceChannel) {
-			return sendEmbed(message, userNotInVoiceChannel);
+			return reply(interaction, userNotInVoiceChannel);
 		}
 
 
 		if (args.length <= 0) {
-			return sendEmbed(message, ':x: Arguments invalides !');
+			return reply(interaction, ':x: Arguments invalides !');
 		}
 
 		if (!voiceConnection) {
 			joinVoiceChannel({
 				channelId: voiceChannel.id,
-				guildId: message.guild.id,
-				adapterCreator: message.guild.voiceAdapterCreator,
+				guildId: interaction.guild.id,
+				adapterCreator: interaction.guild.voiceAdapterCreator,
 			})
-			sendEmbed(message, `:white_check_mark: Connecté a \`${voiceChannel.name}\``)
+			reply(interaction, `:white_check_mark: Connecté a \`${voiceChannel.name}\``)
 		} else if(voiceChannel.id !== voiceConnection.joinConfig.channelId) {
 			joinVoiceChannel({
 				channelId: voiceChannel.id,
-				guildId: message.guild.id,
-				adapterCreator: message.guild.voiceAdapterCreator,
+				guildId: interaction.guild.id,
+				adapterCreator: interaction.guild.voiceAdapterCreator,
 			})
-			sendEmbed(message, `:white_check_mark: Connecté a \`${voiceChannel.name}\``)
+			reply(interaction, `:white_check_mark: Connecté a \`${voiceChannel.name}\``)
 		}
 
-		if (ytpl.validateID(args.join(' ')) === true) {
-			ytpl(args.join(' ')).then((result) => {
+		
 
-				result.items.forEach(async video => {
-					await server.queue.push({
-						title: decodeEntities(video.title),
-						url: video.shortUrl
-					});
+		// if (spSr.getAlbum(args[0].value)) {
+		// 	const result = await spSr.getAlbum(args.join(' '));
 
-				})
+		// 	console.log(result)
 
-				if (server.currentVideo.url != "") {
-					return sendEmbed(message, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
-				}
-				server.currentVideo = server.queue[0];
-				runVideo(message).then(() => {
-					sendEmbed(message, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
-				})
-			})
-		} else {
-			ytsr(args.join(' '), {
+		// 	// result.items.forEach(async video => {
+		// 	// 	await server.queue.push({
+		// 	// 		title: decodeEntities(video.title),
+		// 	// 		url: video.shortUrl
+		// 	// 	});
+
+		// 	// })
+
+		// 	// if (server.currentTrack.id != "") {
+		// 	// 	return sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
+		// 	// }
+		// 	// server.currentTrack = server.queue[0];
+		// 	// runVideo(interaction).then(() => {
+		// 	// 	sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
+		// 	// })
+		// } else {
+			spSr.search({
 				limit: 1,
-				type: 'playlist',
-				key: ytKey
-			}).then((results) => {
-				if (results.results[0]) {
-					if (ytpl.validateID(results.results[0].id)) {
-						ytpl(results.results[0].id).then((result) => {
+				q: args[0].value,
+				type: 'album'
+			}).then(result => {
+				console.log(result.albums.items[0])
+				// if (results.results[0]) {
+				// 	if (ytpl.validateID(results.results[0].id)) {
+				// 		ytpl(results.results[0].id).then((result) => {
 
-							result.items.forEach(async video => {
-								await server.queue.push({
-									title: decodeEntities(video.title),
-									url: video.shortUrl
-								});
+				// 			result.items.forEach(async video => {
+				// 				await server.queue.push({
+				// 					title: decodeEntities(video.title),
+				// 					url: video.shortUrl
+				// 				});
 
-							})
+				// 			})
 
-							if (server.currentVideo.url != "") {
-								return sendEmbed(message, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
-							}
-							server.currentVideo = server.queue[0];
-							sendEmbed(message, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`').then(() => {
-								runVideo(message)
-							})
-						})
-					} else {
-						sendEmbed(message, ':x: Aucune playlist trouvé !');
-					}
-				} else {
-					sendEmbed(message, ':x: Aucune playlist trouvé !');
-				}
+				// 			if (server.currentTrack.id != "") {
+				// 				return sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
+				// 			}
+				// 			server.currentTrack = server.queue[0];
+				// 			sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`').then(() => {
+				// 				runVideo(interaction)
+				// 			})
+				// 		})
+				// 	} else {
+				// 		sendEmbed(interaction, ':x: Aucune playlist trouvé !');
+				// 	}
+				// } else {
+				// 	sendEmbed(interaction, ':x: Aucune playlist trouvé !');
+				// }
 			}).catch(error => {
 				if(error == 'Error: Request failed with status code 403' || error == "Error: Request failed with status code 400") {
-					return sendEmbed(message, ':x: Le bot est temporairement infonctionnel du a une limite de recherche quotidienne.', 'Nous sommes vraiment désolé et faisont tout notre possible pour regler ce genre de problèmes.')
+					return reply(interaction, ':x: Le bot est temporairement infonctionnel du a une limite de recherche quotidienne.', 'Nous sommes vraiment désolé et faisont tout notre possible pour regler ce genre de problèmes.')
 				} else logger.log(error)
 			})
-		}
+		// }
 	}
 
 	// search | a fix
@@ -873,7 +809,7 @@ client.on("interactionCreate", async interaction => {
 				embed.addField('**:track_previous:・ Précédente musique : **', "> [" + server.lastVideo.title + "](" + server.lastVideo.url + ")")
 			}
 
-			embed.addField('**:notes:・ En train de jouer : **', "> [" + server.currentVideo.title + "](" + server.currentVideo.url + ")");
+			embed.addField('**:notes:・ En train de jouer : **', "> [" + server.currentTrack.name + "](" + server.currentTrack.id + ")");
 
 			
 			if (queueLength > 0) {
@@ -1022,17 +958,17 @@ client.on("interactionCreate", async interaction => {
 		}
 
 		if (!server.queue[0]) {
-			server.currentVideo = {
+			server.currentTrack = {
 				url: "",
 				title: "Rien pour le moment."
 			}
 			return sendEmbed(message, emptyQueue);
 		}
 
-		server.lastVideo = server.currentVideo
-		server.currentVideo = server.queue[0]
+		server.lastVideo = server.currentTrack
+		server.currentTrack = server.queue[0]
 		server.queue.shift();
-		runVideo(message, ":track_next: Musique en cours : `" + server.currentVideo.title + "`", true)
+		runVideo(message, ":track_next: Musique en cours : `" + server.currentTrack.name + "`", true)
 
 	}
 
@@ -1070,9 +1006,9 @@ client.on("interactionCreate", async interaction => {
 			return sendEmbed(message, emptyQueue);
 		}
 
-		server.lastVideo = server.currentVideo
-		server.currentVideo = server.queue[index];
-		runVideo(message, ":track_next: Musique en cours : `" + server.currentVideo.title + "`")
+		server.lastVideo = server.currentTrack
+		server.currentTrack = server.queue[index];
+		runVideo(message, ":track_next: Musique en cours : `" + server.currentTrack.name + "`")
 		server.queue.splice(0, index);
 	}
 
@@ -1117,7 +1053,7 @@ client.on("interactionCreate", async interaction => {
 		voiceConnection.destroy();
 		writeQueue(serverId)
 		server.connection = getVoiceConnection(serverId);
-		server.currentVideo = {
+		server.currentTrack = {
 			title: "Rien pour le moment",
 			url: ""
 		}
@@ -1176,7 +1112,7 @@ client.on("interactionCreate", async interaction => {
 			return sendEmbed(message, botNotInVoiceChannel);
 		}
 
-		if (server.currentVideo.url === '') {
+		if (server.currentTrack.id === '') {
 			return sendEmbed(message, ':x: Aucune musique en cours de lecture.')
 		}
 
@@ -1215,16 +1151,16 @@ client.on("interactionCreate", async interaction => {
 			return sendEmbed(message, botNotInVoiceChannel)
 		}
 
-		if (!server.currentVideo.url) {
+		if (!server.currentTrack.id) {
 			if(!server.lastVideo.url) {
 				return sendEmbed(message, ':x: Aucune musique a rejouer')
 			} else {
-				server.currentVideo = server.lastVideo
-				return runVideo(message, ":repeat: En train de jouer : `" + server.currentVideo.title + "`", true)
+				server.currentTrack = server.lastVideo
+				return runVideo(message, ":repeat: En train de jouer : `" + server.currentTrack.name + "`", true)
 			}
 		}
 
-		runVideo(message, ":repeat: En train de jouer : `" + server.currentVideo.title + "`", true)
+		runVideo(message, ":repeat: En train de jouer : `" + server.currentTrack.name + "`", true)
 	}
 
 	//back
@@ -1249,18 +1185,18 @@ client.on("interactionCreate", async interaction => {
 			return sendEmbed(message, botNotInVoiceChannel)
 		}
 
-		if (!server.currentVideo.url) {
+		if (!server.currentTrack.id) {
 			if(!server.lastVideo.url) {
 				return sendEmbed(message, ':x: Aucune musique a rejouer')
 			} else {
-				server.currentVideo = server.lastVideo
-				return runVideo(message, ":track_previous: En train de jouer : `" + server.currentVideo.title + "`", true)
+				server.currentTrack = server.lastVideo
+				return runVideo(message, ":track_previous: En train de jouer : `" + server.currentTrack.name + "`", true)
 			}
 		}
 
-		server.lastVideo = [server.currentVideo, server.currentVideo = server.lastVideo][0];
+		server.lastVideo = [server.currentTrack, server.currentTrack = server.lastVideo][0];
 
-		runVideo(message, ":track_previous: En train de jouer : `" + server.currentVideo.title + "`", true)
+		runVideo(message, ":track_previous: En train de jouer : `" + server.currentTrack.name + "`", true)
 	}
 
 	// prefix
@@ -1706,20 +1642,20 @@ client.on("interactionCreate", async interaction => {
 			return message.channel.send({ embeds: [ embed ] })
 		}
 
-		if (server.currentVideo.url === '') {
+		if (server.currentTrack.id === '') {
 			embed.setTitle(':x:・Aucune musique en cours de lecture.');
 		} else {
-			embed.setTitle(":notes:・" + server.currentVideo.title).setURL(server.currentVideo.url)
+			embed.setTitle(":notes:・" + server.currentTrack.name).setURL(server.currentTrack.id)
 		}
 
 		message.channel.send({ embeds: [ embed ]}).then(async msg => {
 			dispatcher.on('idle', async () => {
 				setTimeout(() => {
-					if(!server.currentVideo.url) {
+					if(!server.currentTrack.id) {
 						msg.edit({ embeds: [ (embed.setTitle(':x:・Aucune musique en cours de lecture.')) ] })
 						logger.log('none')
 					} else {
-						msg.edit({ embeds: [ (embed.setTitle(":notes:・" + server.currentVideo.title)) ] })
+						msg.edit({ embeds: [ (embed.setTitle(":notes:・" + server.currentTrack.name)) ] })
 						logger.log('ya')
 					}
 				}, 1000)
