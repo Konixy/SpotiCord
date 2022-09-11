@@ -408,14 +408,15 @@ async function playTrack(interaction, msg, noShift, playAt) {
 
 	if(!msg) {
 		const trackData = await spSr.getTrack(server.currentTrack.id);
-		let artists = []
-		trackData.artists.forEach(e => artists.push(e.name))
-		return sendEmbed(interaction, `:notes: En train de jouer : \`${server.currentTrack.name}\` de \`${artists.join(', ')}\``)
+		// let artists = []
+		// trackData.artists.forEach(e => artists.push(e.name))
+		reply(interaction, `:notes: En train de jouer :`)
+		return interaction.channel.send(server.currentTrack.url)
 	} else if(msg === 'none') {
 		return
 	} else {
 		try {
-		   return sendEmbed(interaction, msg)
+		   return reply(interaction, msg)
 		} catch {}
 	}
 };
@@ -593,10 +594,16 @@ client.on("interactionCreate", async interaction => {
 					duration: results.tracks.items[0].duration_ms
 				};
 
-				if (server.currentTrack.id != "") {
+				if (server.currentTrack.url !== "") {
 					server.queue.push(foundTrack);
+					const embed = new Discord.MessageEmbed()
+					.setTitle(`:white_ckeck_mark: Ajout a la file d'attente de :`)
+					.setColor(embedColor)
+					const messageData = {content: foundTrack.url, embeds: [embed]};
+					return interaction.replied ? interaction.channel.send(messageData) : interaction.reply(messageData);
 					return reply(interaction, ":white_check_mark: " + "`" + foundTrack.name + "`" + " - Ajouté à la file d'attente")
 				}
+				
 				server.currentTrack = foundTrack;
 				playTrack(interaction);
 			} else {
@@ -605,7 +612,7 @@ client.on("interactionCreate", async interaction => {
 		}).catch(error => {
 			if(error == 'Error: Request failed with status code 403') {
 				return reply(interaction, ':x: Le bot est temporairement infonctionnel du a une limite de recherche quotidienne.', 'Nous sommes vraiment désolé et faisont tout notre possible pour regler ce genre de problèmes.')
-			} else logger.error(error)
+			} else console.log(error.requestData.json.data)
 		})
 
 	}
