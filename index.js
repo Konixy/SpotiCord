@@ -140,7 +140,7 @@ app.get('/', (req, res) => {
 
 app.listen(config.port)
 
-// change the url in https://top.gg/bot/832356026740637706/webhooks after changing heberger
+// change the url in https://top.gg/bot/832356026740637706/webhooks after changing domain name
 
 function decodeEntities(encodedString) {
 	var translate_re = /&(nbsp|amp|quot|lt|gt);/g;
@@ -1843,7 +1843,23 @@ client.on("interactionCreate", async interaction => {
 
 	// uptime
 	else if(command === "uptime") {
-		message.channel.send(moment(Math.round(process.uptime()*1000)).format("HH[h] MM[m] SS[s]"))
+		interaction.channel.send(moment(Math.round(process.uptime()*1000)).format("HH[h] MM[m] SS[s]"))
+	}
+
+	// account
+	else if(command === "account") {
+		const embed = new Discord.MessageEmbed()
+		.setTitle("Merci d'utiliser notre site internet pour vous connecter a spotify")
+		.setColor(embedColor);
+
+		const row = new Discord.MessageActionRow()
+		.setComponents(new Discord.MessageButton()
+		.setStyle('URL')
+		.setURL(`http${config.ssl ? "s" : ""}://${config.domain}`)
+		.setLabel(config.domain))
+		
+		interaction.channel.send({embeds: [embed], components: [row]})
+
 	}
 
 	else {
