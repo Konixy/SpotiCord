@@ -697,7 +697,19 @@ client.on("interactionCreate", async interaction => {
 				q: args[0].value,
 				type: 'album'
 			}).then(result => {
-				console.log(result.albums.items[0])
+				if(result.albums.items[0]) {
+					console.log(result.albums.items[0])
+					result.albums.forEach(async track => {
+						console.log(track)
+						await server.queue.push({
+							name: track.name,
+							id: track.name,
+							url: track.url
+						})
+					})
+				} else {
+					sendEmbed(interaction, ':x: Aucune playlist trouvé !');
+				}
 				// if (results.results[0]) {
 				// 	if (ytpl.validateID(results.results[0].id)) {
 				// 		ytpl(results.results[0].id).then((result) => {
