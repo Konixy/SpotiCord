@@ -707,8 +707,17 @@ client.on("interactionCreate", async interaction => {
 							url: track.url
 						})
 					})
+
+					if (server.currentTrack.id != "") {
+						return sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
+					}
+					server.currentTrack = server.queue[0];
+					reply(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`').then(() => {
+						runVideo(interaction)
+					})
+					interaction.channel.send(result.albums.items[0].url)
 				} else {
-					sendEmbed(interaction, ':x: Aucune playlist trouvé !');
+					reply(interaction, ':x: Aucune playlist trouvé !');
 				}
 				// if (results.results[0]) {
 				// 	if (ytpl.validateID(results.results[0].id)) {
@@ -796,11 +805,11 @@ client.on("interactionCreate", async interaction => {
 	}
 
 	// queue
-	else if (command === 'queue' || command === 'q') {
+	else if (command === 'queue') {
 		const voiceConnection = getVoiceConnection(message.guild.id);
 
 		if (!voiceConnection) {
-			return sendEmbed(message, botNotInVoiceChannel);
+			return reply(interaction, botNotInVoiceChannel);
 		}
 
 		var page = args[0] || 1;
@@ -812,8 +821,8 @@ client.on("interactionCreate", async interaction => {
 		var totalPages = 1;
 
 		let embed = new Discord.MessageEmbed()
-			.setTitle(`File d'attente pour ${message.author.username}`)
-			.setColor('#2f3136');
+			.setTitle(`File d'attente pour ${interaction.author.username}`)
+			.setColor(embedColor);
 
 		function createQueueEmbed(page) {
 			startingItem = (page - 1) * numberItems;
@@ -865,13 +874,13 @@ client.on("interactionCreate", async interaction => {
 
 		try {
 			if(typeof createQueueEmbed(page) === "string") {
-				return sendEmbed(message, createQueueEmbed(page));
+				return reply(message, createQueueEmbed(page));
 			} else {
 				createQueueEmbed(page);
 			}
 		} catch (err) {
 			logger.log(err)
-			return sendEmbed(message, ':x: Le nombre indiqué est invalide ou la musique ne se trouve pas dans la file d\'attente')
+			return reply(message, ':x: Le nombre indiqué est invalide ou la musique ne se trouve pas dans la file d\'attente')
 		}
 
 		const btn1 = new MessageButton()
@@ -892,33 +901,33 @@ client.on("interactionCreate", async interaction => {
 		const btn = new MessageActionRow()
 		.addComponents([ btn1.setDisabled(page <= 1 ? true : false ), btn2.setDisabled(page >= totalPages ? true : false), btn3 ])
 
-		await message.channel.send({ embeds: [embed], components: [ btn ] }).then(async queueMessage => {
-			client.on('interactionCreate', async interaction => {
-				if(!interaction.isButton()) return;
-				if(interaction.message.id !== queueMessage.id) return
-				if(interaction.user.id !== message.member.id) {
-					return interaction.reply({ ephemeral: true, embeds: [genEmbed(":x: Vous n'avez pas la permission d'utiliser ce menu.")] })
+		await interaction.channel.send({ embeds: [embed], components: [ btn ] }).then(async queueMessage => {
+			client.on('interactionCreate', async interaction2 => {
+				if(!interaction2.isButton()) return;
+				if(interaction2.message.id !== queueMessage.id) return;
+				if(interaction2.user.id !== message.member.id) {
+					return interaction2.reply({ ephemeral: true, embeds: [genEmbed(":x: Vous n'avez pas la permission d'utiliser ce menu.")] })
 				}
 
-				if(interaction.customId === "pageLeft") {
+				if(interaction2.customId === "pageLeft") {
 					try {
-						interaction.deferUpdate();
+						interaction2.deferUpdate();
 						if(page <= 1) page = 1; else page--;
 						createQueueEmbed(page)
 						const row = new MessageActionRow().addComponents([ btn1.setDisabled(page <= 1 ? true : false ), btn2.setDisabled(page >= totalPages ? true : false ), btn3 ])
 						return queueMessage.edit({ embeds: [embed], components: [row] })
 					} catch (err) { logger.log() }
-				} else if(interaction.customId === "pageRight") {
+				} else if(interaction2.customId === "pageRight") {
 					try {
-						interaction.deferUpdate();
+						interaction2.deferUpdate();
 						if(page >= totalPages) page = totalPages; else page++;
 						createQueueEmbed(page)
 						// embed.setFooter({ text: `Demandé par ${message.author.username}  •  Page ${page}/${totalPages}`, iconURL: `${message.author.displayAvatarURL({ dynamic: true })}` })
 						const row = new MessageActionRow().addComponents([ btn1.setDisabled(page <= 1 ? true : false ), btn2.setDisabled(page >= totalPages ? true : false ), btn3 ])
 						return queueMessage.edit({ embeds: [embed], components: [row] })
 					} catch (err) { logger.log() }
-				} else if(interaction.customId === "refresh") {
-					interaction.deferUpdate();
+				} else if(interaction2.customId === "refresh") {
+					interaction2.deferUpdate();
 					createQueueEmbed(page)
 					const row = new MessageActionRow().addComponents([ btn1.setDisabled(page <= 1 ? true : false ), btn2.setDisabled(page >= totalPages ? true : false ), btn3 ])
 					return queueMessage.edit({ embeds: [embed], components: [row] })
@@ -931,9 +940,9 @@ client.on("interactionCreate", async interaction => {
 	else if (command === 'del-track' || command === "dt") {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return sendEmbed(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
