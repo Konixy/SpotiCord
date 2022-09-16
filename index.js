@@ -99,6 +99,40 @@ const commands = [
 		]
 	},
 	{
+		name: "eval",
+		description: "Admin only command",
+		options: [
+			{
+				name: "reply",
+				description: "Renvoie directement le résultat de l'action demandé",
+				type: 1,
+				options: [
+					{
+						name: "code",
+						description: "le code a éxecuter",
+						type: 3, required: true
+					}
+				]
+			},
+			{
+				name: "console",
+				description: "Envoie dans la console le résultat de l'action demandé",
+				type: 1,
+				options: [
+					{
+						name: "code",
+						description: "le code a éxecuter",
+						type: 3, required: true
+					}
+				]
+			}
+		]
+	},
+	{
+		name: "restart",
+		description: "Admin only command"
+	},
+	{
 		name: "uptime",
 		category: "util",
 		description: ""
@@ -228,13 +262,13 @@ function sendEmbed(interaction, embedTitle, embedDescription, embedColorParam) {
  * @param {String} embedTitle
  * @param {String} embedDescription
  */
- function reply(interaction, embedTitle, embedDescription) {
+ function reply(interaction, embedTitle, embedDescription, embedColorParam) {
 	if(!embedTitle && !embedDescription) return logger.error('[sendEmbed function ERROR] invalid arguments')
 	const embed = new Discord.MessageEmbed()
 	if(embedTitle) embed.setTitle(embedTitle);
-	embed.setColor(embedColor);
+	embedColorParam ? embed.setColor(embedColorParam) : embed.setColor(embedColor);
 	if(embedDescription) embed.setDescription(embedDescription);
-	if(interaction.replied) return interaction.channel.send({embeds: [embed]})
+	if(interaction.replied) return interaction.channel.send({embeds: [embed]});
 	else return interaction.reply({embeds: [embed]});
 }
 
@@ -1524,62 +1558,37 @@ client.on("interactionCreate", async interaction => {
 
 	// eval
 	else if (command === "eval") {
-		if (message.author.id !== ownerId) {
-			return;
-		} else if (message.author.id === ownerId) {
-			try {
-				eval(args.join(' '));
-			} catch (err) {
-				logger.log(err)
-				if(inspect(err).length < 1900) err = inspect(err);
-				return message.channel.send(":x: [ERROR] : ```console\n" + err + "\n```")
-			}
-		} else {
-			message.channel.send('internal error')
-			logger.log('error at command execute, invalid owner id')
-		}
-	}
+		if (interaction.user.id !== ownerId) return;
+		let arg;
+		if(args[0].name === "console") {
+			arg = args.find(e=>e.name="console").options.find(e=>e.name="code").value
 
-	// evalsend
-	else if (command === "evalsend") {
-		if (message.author.id !== ownerId) {
-			return;
-		} else if (message.author.id === ownerId) {
 			try {
-				const response = eval(args.join(' '));
-				let result = response;
-				if(typeof response !== "string") {
-					if(inspect(result).length < 1900) result = inspect(result);
-					return message.channel.send("```js\n" + result + "\n```")
-				} else {
-					return message.channel.send(result)
-				}
-			} catch (err) {
-				logger.log(err)
-				if(inspect(err).length < 1900) err = inspect(err);
-				return message.channel.send(":x: [ERROR] : ```console\n" + err + "\n```")
-			}
-		} else {
-			message.channel.send('internal error')
-			logger.log('error at command execute, invalid owner id')
-		}
-	}
-
-	// console
-	else if (command === "console") {
-		if (message.author.id !== ownerId) {
-			return;
-		} else if (message.author.id === ownerId) {
-			try {
-				logger.log(eval(args.join(' ')));
+				logger.log(eval(arg));
+				interaction.reply({content: 'Code executé avec succès', ephemeral: true})
 			} catch (err) {
 				logger.error(err)
 				if(inspect(err).length < 1900) err = inspect(err);
-				return message.channel.send(":x: [ERROR] : ```console\n" + err + "\n```")
+				return interaction.reply(":x: [ERROR] : ```console\n" + err + "\n```")
 			}
-		} else {
-			message.channel.send('internal error')
-			logger.log('error at command execute, invalid owner id')
+
+		} else if(args[0].name === "reply") {
+			arg = args.find(e=>e.name="reply").options.find(e=>e.name="code").value
+
+			try {
+				const response = eval(arg);
+				let result = response;
+				if(typeof response !== "string") {
+					if(inspect(result).length < 1900) result = inspect(result);
+					return interaction.reply("```js\n" + result + "\n```")
+				} else {
+					return interaction.reply(result)
+				}
+			} catch (err) {
+				logger.error(err)
+				if(inspect(err).length < 1900) err = inspect(err);
+				return interaction.reply(":x: [ERROR] : ```console\n" + err + "\n```")
+			}
 		}
 	}
 
@@ -1664,82 +1673,30 @@ client.on("interactionCreate", async interaction => {
 		}
 	}
 
-	// dispatcher
-	else if (command === 'dispatcher' || command === 'player') {
-		return;
-		const voiceConnection = getVoiceConnection(message.guild.id);
-		const dispatcher = server.dispatcher;
-
-		if (!message.member.voice.channel) {
-			return sendEmbed(message, userNotInVoiceChannel);
-		}
-
-		if (!voiceConnection) {
-			return sendEmbed(message, botNotInVoiceChannel);
-		}
-
-		const embed = new Discord.MessageEmbed()
-
-		if(!dispatcher) {
-			embed.setTitle(':x:・Aucune musique en cours de lecture.');
-			return message.channel.send({ embeds: [ embed ] })
-		}
-
-		if (server.currentTrack.id === '') {
-			embed.setTitle(':x:・Aucune musique en cours de lecture.');
-		} else {
-			embed.setTitle(":notes:・" + server.currentTrack.name).setURL(server.currentTrack.id)
-		}
-
-		message.channel.send({ embeds: [ embed ]}).then(async msg => {
-			dispatcher.on('idle', async () => {
-				setTimeout(() => {
-					if(!server.currentTrack.id) {
-						msg.edit({ embeds: [ (embed.setTitle(':x:・Aucune musique en cours de lecture.')) ] })
-						logger.log('none')
-					} else {
-						msg.edit({ embeds: [ (embed.setTitle(":notes:・" + server.currentTrack.name)) ] })
-						logger.log('ya')
-					}
-				}, 1000)
-			})
-		})
-	}
-
 	// restart
 	else if (command === 'restart') {
-		if(message.member.user.id !== ownerId) return sendEmbed(message, ":x: Seul le propriétaire du bot peut éxécuter cet commande")
+		if(interaction.user.id !== ownerId) return replyEphemeral(message, ":x: Seul le propriétaire du bot peut éxécuter cet commande");
 
-		function restartServer() {
-			const embed = new Discord.MessageEmbed()
-				.setColor('#ff7f00')
-				.setDescription('<a:loading:914152886856982609> Restarting...')
+		async function restartServer() {
+			const msg = await reply(interaction, '<a:loading:914152886856982609> Restarting...', undefined, '#ff7f00');
 
-			message.channel.send({ embeds: [ embed ] }).then(async (msg) => {
-				const data = {
-					messageId: msg.id,
-					channelId: msg.channelId
-				}
-				fs.writeFile("./latestRestart.json", JSON.stringify(data, null, 4), (err) => {});
-				client.user.setActivity('restarting the bot', { type: 'PLAYING' })
-				client.user.setStatus('dnd')
+			const data = {
+				messageId: msg.id,
+				channelId: msg.channelId
+			}
+			fs.writeFile("./latestRestart.json", JSON.stringify(data, null, 4), (err) => {});
+			client.user.setActivity('restarting the bot', { type: 'PLAYING' })
+			client.user.setStatus('dnd')
 
-				setTimeout(async () => {
-					process.exit(418)
-				}, 500)
-			})
+			setTimeout(() => {
+				process.exit(418)
+			}, 500);
 		}
-
+		
 		if(servers.size >= 1) {
 			let isPlaying = false
 
-			await servers.forEach(element => {
-				if(element.currentVideo.url) {
-					isPlaying = true
-				}
-			})
-
-			if(!isPlaying) return restartServer();
+			if(!isPlaying[0]) return await restartServer();
 
 			const row = new MessageActionRow()
 			.addComponents(
@@ -1749,14 +1706,24 @@ client.on("interactionCreate", async interaction => {
 				.setCustomId('restartBtn')
 			)
 
-			return message.channel.send({ content: "A server is currently listenning to music, are you sure you want to restart the server ?", components: [row] }).then(msg => {
-				client.on('interactionCreate', interaction => {
+			interaction.replied ? interaction.message.channel.send({ content: "A server is currently listenning to music, are you sure you want to restart the server ?", components: [row] }).then(msg => {
+				client.on('interactionCreate', async interaction => {
 					if(!interaction.isButton()) return
 					if(interaction.message.id !== msg.id) return;
 					if(interaction.customId === 'restartBtn') {
 						if(interaction.user.id !== ownerId) return
 						interaction.deferUpdate()
-						return restartServer()
+						return await restartServer()
+					}
+				})
+			}) : interaction.reply({ content: "A server is currently listenning to music, are you sure you want to restart the server ?", components: [row] }).then(msg => {
+				client.on('interactionCreate', async interaction => {
+					if(!interaction.isButton()) return
+					if(interaction.message.id !== msg.id) return;
+					if(interaction.customId === 'restartBtn') {
+						if(interaction.user.id !== ownerId) return
+						interaction.deferUpdate()
+						return await restartServer()
 					}
 				})
 			})
