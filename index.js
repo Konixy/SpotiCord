@@ -1675,9 +1675,9 @@ client.on("interactionCreate", async interaction => {
 
 			setTimeout(() => {
 				process.exit(418)
-			}, 500)
+			}, 500);
 		}
-
+		
 		if(servers.size >= 1) {
 			let isPlaying = servers.values().filter(e=>e.currentTrack.url!=="")
 
