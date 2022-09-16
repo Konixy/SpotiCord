@@ -37,6 +37,16 @@ const mongoose = require('mongoose');
 const database = mongoose.model("guilds", require('./databaseSchema.js'));
 
 const rest = new REST({ version: "10" }).setToken(config.token);
+const categorys = [
+	{
+		id: "util",
+		name: "**👤・Utilitaires :**"
+	},
+	{
+		id: "music",
+		name: "**:notes:・Musiques :**"
+	}
+]
 const commands = [
 	{
 		name: "ping",
@@ -87,6 +97,11 @@ const commands = [
 				type: 3, required: true
 			}
 		]
+	},
+	{
+		name: "uptime",
+		category: "util",
+		description: ""
 	}
 ];
 

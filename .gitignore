@@ -3,3 +3,4 @@ config.js
 package.json
 package-lock.json
 /store
+.DS_Store
