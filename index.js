@@ -110,7 +110,7 @@ const commands = [
 		description: "Passe a la musique suivante",
 		options: [
 			{
-				name: "index",
+				name: "to",
 				description: "Numero de place dans la file d'attente d'une musique",
 				type: 4, required: false
 			}
@@ -598,44 +598,25 @@ client.on("interactionCreate", async interaction => {
 
 	// help
 	else if (command === "help" || command === "?") {
-		const utils = commands.filter(e => e.category === "util")
-		const musics = commands.filter(e => e.category === "music")
-		let utilString = utils.map(e => e = `> \`/${e.name}\` : ${e.description}\n`).join('');
-		let musicString = musics.map(e => e = `> \`/${e.name}\` : ${e.description}\n`).join('');
+		let embedString = [];
+		categorys.forEach(category => {
+			let obj = {
+				name: category.name,
+				value: commands.filter(e => e.category === category.id)
+				.map(e => e = `> \`/${e.name}\` : ${e.description}\n`).join('')
+			}
+			embedString.push(obj)
+		})
+
+		// const utils = commands.filter(e => e.category === "util")
+		// const musics = commands.filter(e => e.category === "music")
+		// let utilString = utils.map(e => e = `> \`/${e.name}\` : ${e.description}\n`).join('');
+		// let musicString = musics.map(e => e = `> \`/${e.name}\` : ${e.description}\n`).join('');
 
 		const helpEmbed = new Discord.MessageEmbed()
 			.setAuthor({ name: `Commandes ${client.user.username} :`, iconURL: client.user.displayAvatarURL()})
 			.setColor('#2f3136')
-			.addFields({
-				name: "**👤・Utilitaires :**",
-				value: utilString
-				// value: `> \`/ping\` : renvoie le temp de reponse en *ms* du bot.\n` +
-				// 	`> \`/prefix [prefix]\` : change le prefix tu bot, exemple : \`/prefix ` + (prefix === "-" ? "!" : "-" ) + "`.\n" +
-				// 	`> \`/djonly <on|off> [@role]\` : permet de configurer le mode dj, seul les membres possédant le role mentionné pouvrons utiliser les commandes de musiques.\n` +
-				// 	`> \`/bot\` : renvois un lien pour ajouter le bot.\n` +
-				// 	`> \`/support\` : renvois un lien pour rejoindre le serveur de support.\n` +
-				// 	`> \`/link\` : renvois les liens utiles.\n`
-			}, {
-				name: "**:notes:・Musiques :**",
-				value: musicString
-				// value: `> \`/play <musique>\` : recherche de la musique sur YouTube puis la joue.\n` +
-				// 	`> \`/playlist <playlist>\` : recherche une playlist depuis YouTube et la joue.\n` +
-				// 	`> \`/queue [page]\` : affiche les musiques dans la file d'attente.\n` +
-				// 	`> \`/clear-queue\` : supprime la file d'attente.\n` +
-				// 	`> \`/del-track <numéro de la musique>\` : supprime un morceau de la file d'attente.\n` +
-				// 	`> \`/skip\` : passe a la musique suivante.\n` +
-				// 	`> \`/skipto <nombre>\` : passe a la musique demandé.\n` +
-				// 	`> \`/clear-queue\` : efface toute la file d'attente.\n` +
-				// 	`> \`/leave\` : quitte le channel vocale.\n` +
-				// 	`> \`/join\` : rejoins le channel vocale dans lequel vous vous trouvez.\n`+
-				// 	`> \`/pause\` : alterne pause/play.\n` +
-				// 	`> \`/replay\` : rejoue la musique en cours, si aucune musique n'est spécifié, rejoue la dernière musique écouté.\n` +
-				// 	`> \`/previous\` : joue la musique précédente.\n` +
-				// 	`> \`/volume [nombre]\` : change le volume du bot.\n`
-			}, {
-				name: "*<> = obligatoire, [] = facultatif*",
-				value: "** **",
-			})
+			.addFields(embedString)
 			.setTimestamp()
 			.setFooter({ text: `Demandé par ${interaction.user.username}`, iconURL: interaction.user.displayAvatarURL({dynamic: true})});
 
