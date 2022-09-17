@@ -33,6 +33,7 @@ const axios = require('axios')
 const Express = require('express');
 const app = Express();
 const mongoose = require('mongoose');
+const ms = require('ms')
 
 const database = mongoose.model("guilds", require('./databaseSchema.js'));
 
@@ -72,7 +73,7 @@ const commands = [
 	},
 	{
 		name: "help",
-		description: "Message d'aide"
+		description: "interaction d'aide"
 	},
 	{
 		name: "play",
@@ -93,10 +94,40 @@ const commands = [
 		options: [
 			{
 				name: "album",
-				description: "Nom ou id d'un album",
+				description: "Nom ou id de l'album",
 				type: 3, required: true
 			}
 		]
+	},
+	{
+		name: "pause",
+		category: "music",
+		description: "Met la musique en pause ou la résume si elle l'est déjà"
+	},
+	{
+		name: "queue",
+		category: "music",
+		description: "Affiche la file d'attente des musiques"
+	},
+	{
+		name: "clear-queue",
+		category: "music",
+		description: "Supprime toute les musiques dans la file d'attente"
+	},
+	{
+		name: "back",
+		category: "music",
+		description: "Joue la musique précédente"
+	},
+	{
+		name: "join",
+		category: "music",
+		description: "Rejoins le salon vocale dans lequel vous êtes connecté"
+	},
+	{
+		name: "leave",
+		category: "music",
+		description: "Quitte le salon vocale et arrête la musique en cours"
 	},
 	{
 		name: "eval",
@@ -135,7 +166,17 @@ const commands = [
 	{
 		name: "uptime",
 		category: "util",
-		description: ""
+		description: "Donne l'uptime du bot"
+	},
+	{
+		name: "invite",
+		category: "util",
+		description: `Lien d'invitation du bot`
+	},
+	{
+		name: "support",
+		category: "util",
+		description: "Le serveur discord de support"
 	}
 ];
 
@@ -181,6 +222,7 @@ let afk = false;
 const Topgg = require("@top-gg/sdk");
 const { randomUUID } = require('crypto');
 const { OpusEncoder } = require('@discordjs/opus');
+const { restart } = require('nodemon');
 const webhook = new Topgg.Webhook("Kr&6dGbqHmBqTK5C")
 
 app.get('/', (req, res) => {
@@ -220,7 +262,7 @@ function convertDate(date, addon) {
 		return epoch
 	}
 
-	let time = `<t:${epoch}${addon}>`
+	let time = `<t:${epoch}${addon ? addon : ""}>`
 
 	return time;
 }
@@ -247,8 +289,8 @@ function genEmbed(embedTitle, embedDescription, embedColorParam) {
  * @param {String} embedDescription
  * @param {String} embedColorParam
  */
-function sendEmbed(interaction, embedTitle, embedDescription, embedColorParam) {
-	if(!interaction.channel || !embedTitle && !embedDescription) return logger.log('[sendEmbed function ERROR] invalid arguments')
+function reply(interaction, embedTitle, embedDescription, embedColorParam) {
+	if(!interaction.channel || !embedTitle && !embedDescription) return logger.log('[reply function ERROR] invalid arguments')
 	const embed = new Discord.MessageEmbed()
 	if(embedTitle) embed.setTitle(embedTitle);
 	if(embedColorParam) embed.setColor(embedColorParam); else embed.setColor(embedColor);
@@ -262,14 +304,18 @@ function sendEmbed(interaction, embedTitle, embedDescription, embedColorParam) {
  * @param {String} embedTitle
  * @param {String} embedDescription
  */
- function reply(interaction, embedTitle, embedDescription, embedColorParam) {
-	if(!embedTitle && !embedDescription) return logger.error('[sendEmbed function ERROR] invalid arguments')
+ async function reply(interaction, embedTitle, embedDescription, embedColorParam) {
+	if(!embedTitle && !embedDescription) return logger.error('[reply function ERROR] invalid arguments')
 	const embed = new Discord.MessageEmbed()
 	if(embedTitle) embed.setTitle(embedTitle);
 	embedColorParam ? embed.setColor(embedColorParam) : embed.setColor(embedColor);
 	if(embedDescription) embed.setDescription(embedDescription);
-	if(interaction.replied) return interaction.channel.send({embeds: [embed]});
-	else return interaction.reply({embeds: [embed]});
+	try {
+		if(!interaction.replied && !interaction.deferred) return await interaction.reply({embeds: [embed], fetchReply: true});
+		else return await interaction.channel.send({embeds: [embed]});
+	} catch (err) {
+		interaction.channel.send({embeds: [embed]})
+	}
 }
 
 
@@ -280,7 +326,7 @@ function sendEmbed(interaction, embedTitle, embedDescription, embedColorParam) {
  * @param {String} embedDescription
  */
  function replyEphemeral(interaction, embedTitle, embedDescription) {
-	if(interaction.replied || !embedTitle && !embedDescription) return logger.error('[sendEmbed function ERROR] invalid arguments')
+	if(interaction.replied || !embedTitle && !embedDescription) return logger.error('[reply function ERROR] invalid arguments')
 	const embed = new Discord.MessageEmbed()
 	if(embedTitle) embed.setTitle(embedTitle);
 	embed.setColor(embedColor);
@@ -290,7 +336,7 @@ function sendEmbed(interaction, embedTitle, embedDescription, embedColorParam) {
 
 /**
  * Load the queue from the server
- * @param {String} message 
+ * @param {String} interaction 
  * @returns 
  */
 function loadQueue(guildId) {
@@ -342,7 +388,7 @@ function writeQueue(guildId) {
 /**
  * Play a Spotify track in the current voice channel
  * @param {Discord.CommandInteraction} interaction 
- * @param {String} msg - Return the String "none" to don't send any message
+ * @param {String} msg - Return the String "none" to don't send any interaction
  * @param {Boolean} noShift 
  * @param {Number} playAt 
  * @returns 
@@ -364,8 +410,8 @@ async function playTrack(interaction, msg, noShift, playAt) {
 	server.startedDate = Date.now()
 
 	audioPlayer.on('error', async error => {
-		if(error.message.includes('Status code: 410')) {
-			sendEmbed(interaction, ':warning: Cette vidéo ne peut être lu car elle est soumise a une limite d\'age.')
+		if(error.interaction.includes('Status code: 410')) {
+			reply(interaction, ':warning: Cette vidéo ne peut être lu car elle est soumise a une limite d\'age.')
 			if(server.queue[0]) {
 				server.lastTrack = server.currentTrack
 				server.currentTrack = server.queue[0]
@@ -382,18 +428,18 @@ async function playTrack(interaction, msg, noShift, playAt) {
 		} else {
 			logger.log(error)
 			if(server.tries >= 3) {
-				await sendEmbed(message, ':x: Trop d\'érreur, déconexion du bot...').then(async () => {
+				await reply(interaction, ':x: Trop d\'érreur, déconexion du bot...').then(async () => {
 					server.tries = 0
 					try {
 						let inviteLink;
-						await message.channel.createInvite().then(invite => inviteLink = invite.url)
-						client.users.cache.get(ownerId).send(`An fatal error occured in ${message.channel} (${inviteLink})`)
+						await interaction.channel.createInvite().then(invite => inviteLink = invite.url)
+						client.users.cache.get(ownerId).send(`An fatal error occured in ${interaction.channel} (${inviteLink})`)
 					} catch {}
 					return connection.destroy()
 				})
 			} else {
 				server.tries++;
-				runVideo(message, `:warning: Une érreur est survenue (essaie ${server.tries}/3)...`)
+				playTack(interaction, `:warning: Une érreur est survenue (essaie ${server.tries}/3)...`)
 				return setTimeout(() => {
 					server.tries = 0
 				}, 30000)
@@ -437,14 +483,14 @@ async function playTrack(interaction, msg, noShift, playAt) {
 	});
 
 	connection.on(VoiceConnectionStatus.Destroyed, () => {
-		// writeQueue(message.guild.id)
+		// writeQueue(interaction.guild.id)
 	});
 
 	// client.on('voiceStateUpdate', (oldState, newState) => {
 	// 	if (oldState.member.user.bot) return;
 	// 	if (oldState.channelId === null || typeof oldState.channelId == 'undefined') return;
 	// 	if(oldState.channelId !== voiceChannel.id) return
-	// 	if(message.guild.channels.cache.get(oldState.channelId).members.size === 1) {
+	// 	if(interaction.guild.channels.cache.get(oldState.channelId).members.size === 1) {
 	// 		afk = true;
 	// 		setTimeout(() => {
 	// 			if(afk === false) return
@@ -528,7 +574,7 @@ client.on("interactionCreate", async interaction => {
 	// ping
 	if (command === "ping") {
 		await interaction.reply({ content: 'Pinging...', fetchReply: true }).then(msg => {
-			interaction.editReply(`Pong 🏓, l'envoie du message a pris : **${msg.createdTimestamp - interaction.createdTimestamp} ms**. ${client.ws.ping ? `\nLe ping du serveur websocket est de :** ${Math.round(client.ws.ping)} ms**.` : ''}`)
+			interaction.editReply(`Pong 🏓, l'envoie du interaction a pris : **${msg.createdTimestamp - interaction.createdTimestamp} ms**. ${client.ws.ping ? `\nLe ping du serveur websocket est de :** ${Math.round(client.ws.ping)} ms**.` : ''}`)
 		})
 	}
 
@@ -645,12 +691,14 @@ client.on("interactionCreate", async interaction => {
 
 				if (server.currentTrack.url !== "") {
 					server.queue.push(foundTrack);
-					const embed = new Discord.MessageEmbed()
-					.setTitle(`:white_ckeck_mark: Ajout a la file d'attente de :`)
-					.setColor(embedColor)
-					const messageData = {content: foundTrack.url, embeds: [embed]};
-					return interaction.replied ? interaction.channel.send(messageData) : interaction.reply(messageData);
-					return reply(interaction, ":white_check_mark: " + "`" + foundTrack.name + "`" + " - Ajouté à la file d'attente")
+					// const embed = new Discord.MessageEmbed()
+					// .setTitle(`:white_ckeck_mark: Ajout a la file d'attente de :`)
+					// .setColor(embedColor)
+					// const interactionData = {content: foundTrack.url, embeds: [embed]};
+					// return interaction.replied ? interaction.channel.send(interactionData) : interaction.reply(interactionData);
+					return reply(interaction, ":white_check_mark: Ajout à la file d'attente de :").then(() => {
+						interaction.channel.send(foundTrack.url)
+					})
 				}
 				
 				server.currentTrack = foundTrack;
@@ -668,7 +716,7 @@ client.on("interactionCreate", async interaction => {
 
 	// playlist
 	else if(command === 'playlist' || command === 'pl') {
-		// return sendEmbed(message, ':warning: Une maintenance est en cours due a un bug majeur empechant de faire fonctionner le bot.')
+		// return reply(interaction, ':warning: Une maintenance est en cours due a un bug majeur empechant de faire fonctionner le bot.')
 
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
@@ -686,7 +734,7 @@ client.on("interactionCreate", async interaction => {
 				server.cooldown = false
 			}, 1000)
 		} else if (server.cooldown === true) {
-      server.timeout.refresh()
+      		server.timeout.refresh()
 			return reply(interaction, ':hourglass: Veuillez attendre 1 seconde avant de réutiliser cette commande.')
 		}
 
@@ -718,10 +766,14 @@ client.on("interactionCreate", async interaction => {
 			reply(interaction, `:white_check_mark: Connecté a \`${voiceChannel.name}\``)
 		}
 
-		
+		// try {
+
+		// } catch (err) {
+
+		// }
 
 		// if (spSr.getAlbum(args[0].value)) {
-		// 	const result = await spSr.getAlbum(args.join(' '));
+		// 	const result = await spSr.getAlbum(args[0].value);
 
 		// 	console.log(result)
 
@@ -734,70 +786,44 @@ client.on("interactionCreate", async interaction => {
 		// 	// })
 
 		// 	// if (server.currentTrack.id != "") {
-		// 	// 	return sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
+		// 	// 	return reply(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
 		// 	// }
 		// 	// server.currentTrack = server.queue[0];
-		// 	// runVideo(interaction).then(() => {
-		// 	// 	sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
+		// 	// playTack(interaction).then(() => {
+		// 	// 	reply(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
 		// 	// })
 		// } else {
 			spSr.search({
 				limit: 1,
 				q: args[0].value,
 				type: 'album'
-			}).then(result => {
+			}).then(async result => {
 				if(result.albums.items[0]) {
-					console.log(result.albums.items[0])
-					result.albums.forEach(async track => {
-						console.log(track)
+					const tracks = await spSr.getAlbum(result.albums.items[0].id)
+					tracks.tracks.items.forEach(async track => {
 						await server.queue.push({
 							name: track.name,
-							id: track.name,
-							url: track.url
+							id: track.id,
+							url: track.external_urls.spotify
 						})
 					})
 
-					if (server.currentTrack.id != "") {
-						return sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
+					if (server.currentTrack.url !== "") {
+						await reply(interaction, ':information_source: Ajout de `' + tracks.tracks.items.length + '` musiques de :')
+						return interaction.channel.send(result.albums.items[0].external_urls.spotify)
 					}
 					server.currentTrack = server.queue[0];
-					reply(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`').then(() => {
-						runVideo(interaction)
+					reply(interaction, ':information_source: Ajout de `' + tracks.tracks.items.length + '` musiques de :').then(() => {
+						interaction.channel.send(result.albums.items[0].external_urls.spotify)
+						return playTrack(interaction)
 					})
-					interaction.channel.send(result.albums.items[0].url)
 				} else {
 					reply(interaction, ':x: Aucune playlist trouvé !');
 				}
-				// if (results.results[0]) {
-				// 	if (ytpl.validateID(results.results[0].id)) {
-				// 		ytpl(results.results[0].id).then((result) => {
-
-				// 			result.items.forEach(async video => {
-				// 				await server.queue.push({
-				// 					title: decodeEntities(video.title),
-				// 					url: video.shortUrl
-				// 				});
-
-				// 			})
-
-				// 			if (server.currentTrack.id != "") {
-				// 				return sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
-				// 			}
-				// 			server.currentTrack = server.queue[0];
-				// 			sendEmbed(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`').then(() => {
-				// 				runVideo(interaction)
-				// 			})
-				// 		})
-				// 	} else {
-				// 		sendEmbed(interaction, ':x: Aucune playlist trouvé !');
-				// 	}
-				// } else {
-				// 	sendEmbed(interaction, ':x: Aucune playlist trouvé !');
-				// }
 			}).catch(error => {
 				if(error == 'Error: Request failed with status code 403' || error == "Error: Request failed with status code 400") {
 					return reply(interaction, ':x: Le bot est temporairement infonctionnel du a une limite de recherche quotidienne.', 'Nous sommes vraiment désolé et faisont tout notre possible pour regler ce genre de problèmes.')
-				} else logger.log(error)
+				} else console.error(error)
 			})
 		// }
 	}
@@ -806,7 +832,7 @@ client.on("interactionCreate", async interaction => {
 	else if (command === "search") {
 		return;
 		if (args.length <= 0) {
-			return sendEmbed(message, ':x: Arguments invalides !');
+			return reply(interaction, ':x: Arguments invalides !');
 		}
 
 		const resultNum = args[0] || 1
@@ -839,9 +865,9 @@ client.on("interactionCreate", async interaction => {
 
 						return embed;
 					}
-					message.channel.send({ content: "Voici ce que j'ai trouvé pour `" + args.join(" ") + "` :", embeds: [ getResult(resultNum - 1) ] })
+					interaction.channel.send({ content: "Voici ce que j'ai trouvé pour `" + args.join(" ") + "` :", embeds: [ getResult(resultNum - 1) ] })
 				} else {
-					sendEmbed(message, ':x: Aucune vidéo trouvé !');
+					reply(interaction, ':x: Aucune vidéo trouvé !');
 				}
 			})
 		}
@@ -855,7 +881,7 @@ client.on("interactionCreate", async interaction => {
 
 	// queue
 	else if (command === 'queue') {
-		const voiceConnection = getVoiceConnection(message.guild.id);
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
 
 		if (!voiceConnection) {
 			return reply(interaction, botNotInVoiceChannel);
@@ -870,7 +896,7 @@ client.on("interactionCreate", async interaction => {
 		var totalPages = 1;
 
 		let embed = new Discord.MessageEmbed()
-			.setTitle(`File d'attente pour ${interaction.author.username}`)
+			.setTitle(`File d'attente pour ${interaction.user.username}`)
 			.setColor(embedColor);
 
 		function createQueueEmbed(page) {
@@ -880,13 +906,13 @@ client.on("interactionCreate", async interaction => {
 			itemPerPage = startingItem + numberItems;
 			totalPages = 1;
 
-			embed = new Discord.MessageEmbed().setTitle(`File d'attente de ${message.guild.name}`).setColor('#2f3136');
+			embed = new Discord.MessageEmbed().setTitle(`File d'attente de ${interaction.guild.name}`).setColor('#2f3136');
 
-			if(server.lastVideo.url) {
-				embed.addField('**:track_previous:・ Précédente musique : **', "> [" + server.lastVideo.title + "](" + server.lastVideo.url + ")")
+			if(server.lastTrack.url) {
+				embed.addField('**:track_previous:・ Précédente musique : **', "> [" + server.lastTrack.title + "](" + server.lastTrack.url + ")")
 			}
 
-			embed.addField('**:notes:・ En train de jouer : **', "> [" + server.currentTrack.name + "](" + server.currentTrack.id + ")");
+			embed.addField('**:notes:・ En train de jouer : **', "> [" + server.currentTrack.name + "](" + server.currentTrack.url + ")");
 
 			
 			if (queueLength > 0) {
@@ -906,10 +932,10 @@ client.on("interactionCreate", async interaction => {
 
 				for (let i = startingItem; i < itemPerPage; i++) {
 					const video = server.queue[i];
-					if(video.title.length > 40) {
-						video.title = video.title.substring(0, 40) + "... ";
+					if(video.name.length > 40) {
+						video.name = video.name.substring(0, 40) + "... ";
 					}
-					value += "> `" + (i + 1) + ".` " + "[" + video.title + "](" + video.url + ")" + "\n";
+					value += "> `" + (i + 1) + ".` " + "[" + video.name + "](" + video.url + ")" + "\n";
 					
 				}
 
@@ -918,18 +944,18 @@ client.on("interactionCreate", async interaction => {
 			}
 
 			embed.setTimestamp();
-			embed.setFooter({ text: `Demandé par ${message.author.username}  •  Page ${page}/${totalPages}`, iconURL: `${message.author.displayAvatarURL({ dynamic: true })}`});
+			embed.setFooter({ text: `Demandé par ${interaction.user.username}  •  Page ${page}/${totalPages}`, iconURL: `${interaction.user.displayAvatarURL({ dynamic: true })}`});
 		}
 
 		try {
 			if(typeof createQueueEmbed(page) === "string") {
-				return reply(message, createQueueEmbed(page));
+				return reply(interaction, createQueueEmbed(page));
 			} else {
 				createQueueEmbed(page);
 			}
 		} catch (err) {
-			logger.log(err)
-			return reply(message, ':x: Le nombre indiqué est invalide ou la musique ne se trouve pas dans la file d\'attente')
+			console.log(err)
+			return reply(interaction, ':x: Le nombre indiqué est invalide ou la musique ne se trouve pas dans la file d\'attente')
 		}
 
 		const btn1 = new MessageButton()
@@ -950,11 +976,11 @@ client.on("interactionCreate", async interaction => {
 		const btn = new MessageActionRow()
 		.addComponents([ btn1.setDisabled(page <= 1 ? true : false ), btn2.setDisabled(page >= totalPages ? true : false), btn3 ])
 
-		await interaction.channel.send({ embeds: [embed], components: [ btn ] }).then(async queueMessage => {
+		await interaction.reply({ embeds: [embed], components: [ btn ], fetchReply: true }).then(async repliedInteraction => {
 			client.on('interactionCreate', async interaction2 => {
 				if(!interaction2.isButton()) return;
-				if(interaction2.message.id !== queueMessage.id) return;
-				if(interaction2.user.id !== message.member.id) {
+				if(repliedInteraction.id !== interaction2.message.id) return;
+				if(interaction2.user.id !== interaction.member.id) {
 					return interaction2.reply({ ephemeral: true, embeds: [genEmbed(":x: Vous n'avez pas la permission d'utiliser ce menu.")] })
 				}
 
@@ -964,22 +990,22 @@ client.on("interactionCreate", async interaction => {
 						if(page <= 1) page = 1; else page--;
 						createQueueEmbed(page)
 						const row = new MessageActionRow().addComponents([ btn1.setDisabled(page <= 1 ? true : false ), btn2.setDisabled(page >= totalPages ? true : false ), btn3 ])
-						return queueMessage.edit({ embeds: [embed], components: [row] })
+						return repliedInteraction.edit({ embeds: [embed], components: [row] })
 					} catch (err) { logger.log() }
 				} else if(interaction2.customId === "pageRight") {
 					try {
 						interaction2.deferUpdate();
 						if(page >= totalPages) page = totalPages; else page++;
 						createQueueEmbed(page)
-						// embed.setFooter({ text: `Demandé par ${message.author.username}  •  Page ${page}/${totalPages}`, iconURL: `${message.author.displayAvatarURL({ dynamic: true })}` })
+						// embed.setFooter({ text: `Demandé par ${interaction.author.username}  •  Page ${page}/${totalPages}`, iconURL: `${interaction.author.displayAvatarURL({ dynamic: true })}` })
 						const row = new MessageActionRow().addComponents([ btn1.setDisabled(page <= 1 ? true : false ), btn2.setDisabled(page >= totalPages ? true : false ), btn3 ])
-						return queueMessage.edit({ embeds: [embed], components: [row] })
+						return repliedInteraction.edit({ embeds: [embed], components: [row] })
 					} catch (err) { logger.log() }
 				} else if(interaction2.customId === "refresh") {
 					interaction2.deferUpdate();
 					createQueueEmbed(page)
 					const row = new MessageActionRow().addComponents([ btn1.setDisabled(page <= 1 ? true : false ), btn2.setDisabled(page >= totalPages ? true : false ), btn3 ])
-					return queueMessage.edit({ embeds: [embed], components: [row] })
+					return repliedInteraction.edit({ embeds: [embed], components: [row] })
 				}
 			})
 		})
@@ -991,24 +1017,24 @@ client.on("interactionCreate", async interaction => {
 			if(server.djOnly.role) {
 				await interaction.guild.members.fetch()
 				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
 
-		if (!voiceConnection) return sendEmbed(message, botNotInVoiceChannel);
+		if (!voiceConnection) return reply(interaction, botNotInVoiceChannel);
 
-		if(!args[0]) return sendEmbed(message, ':x: Arguments invalides, utilisation de la commande : `' + prefix + 'del-track <chiffre de la musique a suprimmer dans la file d\'attente>`')
+		if(!args[0]) return reply(interaction, ':x: Arguments invalides, utilisation de la commande : `' + prefix + 'del-track <chiffre de la musique a suprimmer dans la file d\'attente>`')
 
 		let trackNumber = Number(args[0]) - 1;
 
 		if(server.queue[trackNumber]) {
-			await sendEmbed(message, ':white_check_mark: `' + server.queue[trackNumber].title + '` suprimmé de la file d\'attente')
+			await reply(interaction, ':white_check_mark: `' + server.queue[trackNumber].title + '` suprimmé de la file d\'attente')
 			return server.queue.splice(trackNumber, 1);
 		} else {
-			return sendEmbed(message, ':x: Le nombre indiqué est invalide ou la musique ne se trouve pas dans la file d\'attente')
+			return reply(interaction, ':x: Le nombre indiqué est invalide ou la musique ne se trouve pas dans la file d\'attente')
 		}
 	}
 
@@ -1016,22 +1042,22 @@ client.on("interactionCreate", async interaction => {
 	else if (command === "skip" || command === 's') {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
-		const voiceChannel = message.member.voice.channel;
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
+		const voiceChannel = interaction.member.voice.channel;
 
 		if (!voiceChannel) {
-			return sendEmbed(message, userNotInVoiceChannel);
+			return reply(interaction, userNotInVoiceChannel);
 		}
 
 		if (!voiceConnection) {
-			return sendEmbed(message, botNotInVoiceChannel)
+			return reply(interaction, botNotInVoiceChannel)
 		}
 
 		if (!server.queue[0]) {
@@ -1039,13 +1065,13 @@ client.on("interactionCreate", async interaction => {
 				url: "",
 				title: "Rien pour le moment."
 			}
-			return sendEmbed(message, emptyQueue);
+			return reply(interaction, emptyQueue);
 		}
 
 		server.lastVideo = server.currentTrack
 		server.currentTrack = server.queue[0]
 		server.queue.shift();
-		runVideo(message, ":track_next: Musique en cours : `" + server.currentTrack.name + "`", true)
+		playTack(interaction, ":track_next: Musique en cours : `" + server.currentTrack.name + "`", true)
 
 	}
 
@@ -1053,15 +1079,15 @@ client.on("interactionCreate", async interaction => {
 	else if (command === 'skipto' || command === 'st') {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
-		const voiceChannel = message.member.voice.channel;
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
+		const voiceChannel = interaction.member.voice.channel;
 
 		var index = Number(args[0])
 
@@ -1070,250 +1096,215 @@ client.on("interactionCreate", async interaction => {
 		}
 
 		if (!voiceChannel) {
-			return sendEmbed(message, userNotInVoiceChannel);
+			return reply(interaction, userNotInVoiceChannel);
 		}
 
 		if (!voiceConnection) {
-			return sendEmbed(message, botNotInVoiceChannel)
+			return reply(interaction, botNotInVoiceChannel)
 		}
 
 		index--;
 
 		if (!server.queue[index]) {
-			return sendEmbed(message, emptyQueue);
+			return reply(interaction, emptyQueue);
 		}
 
 		server.lastVideo = server.currentTrack
 		server.currentTrack = server.queue[index];
-		runVideo(message, ":track_next: Musique en cours : `" + server.currentTrack.name + "`")
+		playTack(interaction, ":track_next: Musique en cours : `" + server.currentTrack.name + "`")
 		server.queue.splice(0, index);
 	}
 
 	// clear queue
-	else if (command === 'clear-queue' || command === 'cq') {
+	else if (command === 'clear-queue') {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
 		server.queue = [];
-		writeQueue(serverId)
-		sendEmbed(message, ":white_check_mark: File d'attente éffacé avec succès !");
+		// writeQueue(serverId)
+		reply(interaction, ":white_check_mark: File d'attente éffacé avec succès !");
 	}
 
 	// leave
-	else if (command === 'leave' || command === 'disconnect' || command === 'l') {
+	else if (command === 'leave') {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
-		const voiceChannel = message.member.voice.channel;
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
+		const voiceChannel = interaction.member.voice.channel;
 
 		if (!voiceConnection) {
-			return sendEmbed(message, botNotInVoiceChannel);
+			return reply(interaction, botNotInVoiceChannel);
 		}
 
 		if (!voiceChannel) {
-			return sendEmbed(message, userNotInVoiceChannel);
+			return reply(interaction, userNotInVoiceChannel);
 		}
 
 		voiceConnection.destroy();
-		writeQueue(serverId)
+		// writeQueue(serverId)
 		server.connection = getVoiceConnection(serverId);
 		server.currentTrack = {
 			title: "Rien pour le moment",
 			url: ""
 		}
 
-		return sendEmbed(message, ":white_check_mark: Déconnecté");
+		return reply(interaction, ":white_check_mark: Déconnecté");
 	}
 
 	// join
-	else if (command === 'join' || command === 'j') {
+	else if (command === 'join') {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
-		const voiceChannel = message.member.voice.channel;
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
+		const voiceChannel = interaction.member.voice.channel;
 
 		if (!voiceChannel) {
-			return sendEmbed(message, userNotInVoiceChannel);
+			return reply(interaction, userNotInVoiceChannel);
 		}
 
 		await joinVoiceChannel({
 			channelId: voiceChannel.id,
-			guildId: message.guild.id,
-			adapterCreator: message.guild.voiceAdapterCreator,
+			guildId: interaction.guild.id,
+			adapterCreator: interaction.guild.voiceAdapterCreator,
 		})
 
 		server.connection = getVoiceConnection(serverId);
 
-		sendEmbed(message, `:white_check_mark: Connecté a \`${voiceChannel.name}\``)
+		reply(interaction, `:white_check_mark: Connecté a \`${voiceChannel.name}\``)
 	}
 
 	// pause
-	else if (command === 'pause' || command === 'stop' || command === "resume") {
+	else if (command === 'pause') {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
 		const dispatcher = server.dispatcher;
 
-		if (!message.member.voice.channel) {
-			return sendEmbed(message, userNotInVoiceChannel);
+		if (!interaction.member.voice.channel) {
+			return reply(interaction, userNotInVoiceChannel);
 		}
 
 		if (!voiceConnection) {
-			return sendEmbed(message, botNotInVoiceChannel);
+			return reply(interaction, botNotInVoiceChannel);
 		}
 
 		if (server.currentTrack.id === '') {
-			return sendEmbed(message, ':x: Aucune musique en cours de lecture.')
+			return reply(interaction, ':x: Aucune musique en cours de lecture.')
 		}
 
 		if (dispatcher) {
 			if(dispatcher.state.status === 'playing') {
 				dispatcher.pause();
-				return sendEmbed(message, ":pause_button: Pause")
+				return reply(interaction, ":pause_button: Pause")
 			} else if(dispatcher.state.status === 'paused') {
 				dispatcher.unpause();
-				return sendEmbed(message, ":arrow_forward: Reprise")
+				return reply(interaction, ":arrow_forward: Reprise")
 			}
 		}
 
-		sendEmbed(message, ':x: Une erreur est survenue.')
+		reply(interaction, ':x: Une erreur est survenue.')
 	}
 
 	//replay
 	else if (command === "replay" || command === "re") {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
-		const voiceChannel = message.member.voice.channel;
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
+		const voiceChannel = interaction.member.voice.channel;
 
 		if (!voiceChannel) {
-			return sendEmbed(message, userNotInVoiceChannel);
+			return reply(interaction, userNotInVoiceChannel);
 		}
 
 		if (!voiceConnection) {
-			return sendEmbed(message, botNotInVoiceChannel)
+			return reply(interaction, botNotInVoiceChannel)
 		}
 
 		if (!server.currentTrack.id) {
 			if(!server.lastVideo.url) {
-				return sendEmbed(message, ':x: Aucune musique a rejouer')
+				return reply(interaction, ':x: Aucune musique a rejouer')
 			} else {
 				server.currentTrack = server.lastVideo
-				return runVideo(message, ":repeat: En train de jouer : `" + server.currentTrack.name + "`", true)
+				return playTrack(interaction, ":repeat: En train de jouer : `" + server.currentTrack.name + "`", true)
 			}
 		}
 
-		runVideo(message, ":repeat: En train de jouer : `" + server.currentTrack.name + "`", true)
+		playTrack(interaction, ":repeat: En train de jouer : `" + server.currentTrack.name + "`", true)
 	}
 
 	//back
-	else if (command === 'back' || command === "previous" || command === "rs") {
+	else if (command === 'back') {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
-		const voiceChannel = message.member.voice.channel;
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
+		const voiceChannel = interaction.member.voice.channel;
 
 		if (!voiceChannel) {
-			return sendEmbed(message, userNotInVoiceChannel);
+			return reply(interaction, userNotInVoiceChannel);
 		}
 
 		if (!voiceConnection) {
-			return sendEmbed(message, botNotInVoiceChannel)
+			return reply(interaction, botNotInVoiceChannel)
 		}
 
 		if (!server.currentTrack.id) {
 			if(!server.lastVideo.url) {
-				return sendEmbed(message, ':x: Aucune musique a rejouer')
+				return reply(interaction, ':x: Aucune musique a rejouer')
 			} else {
 				server.currentTrack = server.lastVideo
-				return runVideo(message, ":track_previous: En train de jouer : `" + server.currentTrack.name + "`", true)
+				return playTrack(interaction, ":track_previous: En train de jouer : `" + server.currentTrack.name + "`", true)
 			}
 		}
 
 		server.lastVideo = [server.currentTrack, server.currentTrack = server.lastVideo][0];
 
-		runVideo(message, ":track_previous: En train de jouer : `" + server.currentTrack.name + "`", true)
-	}
-
-	// prefix
-	else if (command === 'prefix' || command === 'set-prefix') {
-		if (args.length <= 0) {
-			return sendEmbed(message, 'Mon préfix sur le serveur est : `' + prefix + '`');
-		}
-
-		if (!message.member.permissions.has('MANAGE_GUILD')) {
-			return sendEmbed(message, ":x: Vous n'avez pas les permissions de faire ceci !");
-		}
-
-		prefixDb.findById(serverId, async (err, data) => {
-			if (err) {
-				logger.error(err)
-				sendEmbed(message, ":x: Une erreur s'est produite :/")
-			} else {
-				await prefixDb.findOneAndDelete({
-						_id: serverId
-					})
-					.then(async () => {
-						const newDb = new prefixDb({
-							_id: serverId,
-							prefixDb: args.join(" "),
-							volDb: server.currentVol,
-							djOnly: false,
-							djRoleId: null
-						});
-						await newDb.save().then(() => {
-							prefix = args.join(" ")
-							return sendEmbed(message, ':white_check_mark: Préfix changé pour le serveur : `' + prefix + "`")
-						})
-					})
-			}
-		})
+		playTrack(interaction, ":track_previous: En train de jouer : `" + server.currentTrack.name + "`", true)
 	}
 
 	// dj role
 	else if (command === 'djonly') {
-		// if(!message.member.permissions.has('MANAGE_GUILD')) return sendEmbed(message, ":x: Vous n'avez pas les permissions de faire ceci !");
+		// if(!interaction.member.permissions.has('MANAGE_GUILD')) return reply(interaction, ":x: Vous n'avez pas les permissions de faire ceci !");
 		let data = await database.findById(serverId);
 		server.djOnly.enabled = data.djOnly.enabled
 		if(data.djOnly.enabled) {
@@ -1370,8 +1361,8 @@ client.on("interactionCreate", async interaction => {
 
 					await data.save().then(() => {
 						server.djOnly.enabled = false
-						interaction2.message.edit({embeds: [genEmbed(`🎧 Le mode DJ est actuellement ${server.djOnly.enabled ? "activé pour le role `" + server.djOnly.role.name + "`" : 'désactivé'}`)], components: [genDjOnlyRow()]})
-						return sendEmbed(interaction, `:white_check_mark: Mode DJ désactivé avec succès !`).then(msgg => {
+						interaction2.interaction.edit({embeds: [genEmbed(`🎧 Le mode DJ est actuellement ${server.djOnly.enabled ? "activé pour le role `" + server.djOnly.role.name + "`" : 'désactivé'}`)], components: [genDjOnlyRow()]})
+						return reply(interaction, `:white_check_mark: Mode DJ désactivé avec succès !`).then(msgg => {
 							setTimeout(() => {
 								try { msgg.delete() }
 								catch (err) {}
@@ -1384,15 +1375,15 @@ client.on("interactionCreate", async interaction => {
 
 					if(!server.djOnly.role || interaction2.customId.endsWith('editDjOnlyRole')) {
 
-						interaction2.message.edit({embeds: [genEmbed(`🎧 Le mode DJ est actuellement ${server.djOnly.enabled ? "activé pour le role `" + server.djOnly.role.name + "`" : 'désactivé'}`)], components: [genDjOnlyRow(true)]})
-						sendEmbed(interaction, 'Merci de mentionner ci-dessous le rôle que vous voulez utiliser pour le mode DJ').then((roleMsg) => {
-							interaction.channel.awaitMessages({
+						interaction2.interaction.edit({embeds: [genEmbed(`🎧 Le mode DJ est actuellement ${server.djOnly.enabled ? "activé pour le role `" + server.djOnly.role.name + "`" : 'désactivé'}`)], components: [genDjOnlyRow(true)]})
+						reply(interaction, 'Merci de mentionner ci-dessous le rôle que vous voulez utiliser pour le mode DJ').then((roleMsg) => {
+							interaction.channel.awaitinteractions({
 								filter: (m) => m.author.id === interaction.user.id,
 								max: 1,
 								time: 30000,
 								errors: ['time']
-							}).then(async messages => {
-								const msg = messages.first()
+							}).then(async interactions => {
+								const msg = interactions.first()
 								await interaction.guild.roles.fetch()
 								if(interaction.guild.roles.cache.get(msg.content) || msg.mentions.roles.first()) {
 									try {
@@ -1408,8 +1399,8 @@ client.on("interactionCreate", async interaction => {
 									await data.save().then(() => {
 										server.djOnly.enabled = true
 										server.djOnly.role = role
-										interaction2.message.edit({embeds: [genEmbed(`🎧 Le mode DJ est actuellement ${server.djOnly.enabled ? "activé pour le role `" + server.djOnly.role.name + "`" : 'désactivé'}`)], components: [genDjOnlyRow(false)]})
-										return sendEmbed(interaction, `:white_check_mark: Mode DJ défini avec succès !`).then(msgg => {
+										interaction2.interaction.edit({embeds: [genEmbed(`🎧 Le mode DJ est actuellement ${server.djOnly.enabled ? "activé pour le role `" + server.djOnly.role.name + "`" : 'désactivé'}`)], components: [genDjOnlyRow(false)]})
+										return reply(interaction, `:white_check_mark: Mode DJ défini avec succès !`).then(msgg => {
 											setTimeout(() => {
 												try { msgg.delete() }
 												catch (err) {}
@@ -1426,8 +1417,8 @@ client.on("interactionCreate", async interaction => {
 
 						await data.save().then(() => {
 							server.djOnly.enabled = true
-							interaction2.message.edit({embeds: [genEmbed(`🎧 Le mode DJ est actuellement ${server.djOnly.enabled ? "activé pour le role `" + server.djOnly.role.name + "`" : 'désactivé'}`)], components: [genDjOnlyRow()]})
-							return sendEmbed(interaction, `:white_check_mark: Mode DJ activé avec succès !`).then(msgg => {
+							interaction2.interaction.edit({embeds: [genEmbed(`🎧 Le mode DJ est actuellement ${server.djOnly.enabled ? "activé pour le role `" + server.djOnly.role.name + "`" : 'désactivé'}`)], components: [genDjOnlyRow()]})
+							return reply(interaction, `:white_check_mark: Mode DJ activé avec succès !`).then(msgg => {
 								setTimeout(() => {
 									try { msgg.delete() }
 									catch (err) {}
@@ -1441,18 +1432,17 @@ client.on("interactionCreate", async interaction => {
 	}
 
 	// add-bot
-	else if (command === 'bot' || command === 'add-bot') {
-
+	else if (command === 'invite') {
 		const row = new MessageActionRow()
 			.addComponents(
 				new MessageButton()
 				.setStyle('LINK')
-				.setURL(inviteLink)
+				.setURL(config.inviteLink)
 				.setLabel('Click ICI')
 			)
 
-		message.channel.send({
-			content: "Tu peut m'ajouter sur ton serveur en cliquant sur ce bouton !",
+		interaction.reply({
+			embeds: [genEmbed("Tu peut m'ajouter sur ton serveur en cliquant sur ce bouton !")],
 			components: [row]
 		})
 	}
@@ -1464,11 +1454,11 @@ client.on("interactionCreate", async interaction => {
 			.addComponents(
 				new MessageButton()
 				.setStyle('LINK')
-				.setURL(serverLink)
+				.setURL(config.discordInvite)
 				.setLabel('Click ICI')
 			)
 
-		message.channel.send({
+		interaction.reply({
 			embeds: [genEmbed(`En cas de problème ou de demande particulière, vous pouvez peut rejoindre le serveur de support en cliquant sur ce bouton ou contacter \`${client.users.cache.get(ownerId).tag}\`.`)],
 			components: [row]
 		})
@@ -1514,15 +1504,15 @@ client.on("interactionCreate", async interaction => {
 		}
 
 		genRow()
-		message.channel.send({
+		interaction.channel.send({
 			content: 'Clickez sur un lien parmis cette liste.',
 			components: [row]
 		}).then(msg => {
 			client.on('interactionCreate', async (interaction, menu) => {
 				if(!interaction.isSelectMenu()) return;
 				if(!interaction.customId === 'menu') return;
-				if(interaction.message.id !== msg.id) return;
-				if(interaction.user.id !== message.member.id) {
+				if(interaction.interaction.id !== msg.id) return;
+				if(interaction.user.id !== interaction.member.id) {
 					return interaction.reply({ ephemeral: true, embeds: [genEmbed(":x: Vous n'avez pas la permission d'utiliser ce menu.")] })
 				}
 
@@ -1596,24 +1586,24 @@ client.on("interactionCreate", async interaction => {
 	else if (command === 'volume' || command === 'vol' || command === 'v') {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
-				await message.guild.members.fetch()
-				if(!message.member.roles.cache.has(server.djOnly.role.id)) {
-					return sendEmbed(message, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+				await interaction.guild.members.fetch()
+				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
 				}
 			}
 		}
 
-		const voiceConnection = getVoiceConnection(message.guild.id);
+		const voiceConnection = getVoiceConnection(interaction.guild.id);
 
 		const arg = Number(args.join(' '));
 
-		if(arg > 100 || arg < 0) return sendEmbed(message, ':x: Vous devez donner un nombre entre 1 et 100.');
+		if(arg > 100 || arg < 0) return reply(interaction, ':x: Vous devez donner un nombre entre 1 et 100.');
 
 		if (!arg && arg !== 0) {
 			prefixDb.findById(serverId, async (err, data) => {
 				if (err) {
 					logger.error(err)
-					sendEmbed(message, ":x: Une erreur s'est produite :/")
+					reply(interaction, ":x: Une erreur s'est produite :/")
 				} else {
 					volume = data.volDb;
 					var emoji;
@@ -1629,14 +1619,14 @@ client.on("interactionCreate", async interaction => {
 					}
 
 
-					return sendEmbed(message, emoji + ' Volume : `' + volume + "%`")
+					return reply(interaction, emoji + ' Volume : `' + volume + "%`")
 				}
 			})
 		} else {
 			prefixDb.findById(serverId, async (err, data) => {
 				if (err) {
 					logger.error(err)
-					sendEmbed(message, ":x: Une erreur s'est produite :/")
+					reply(interaction, ":x: Une erreur s'est produite :/")
 				} else {
 					prefixDb.findOneAndDelete({
 						_id: serverId
@@ -1667,7 +1657,7 @@ client.on("interactionCreate", async interaction => {
 					} else if (arg <= 100 && arg > 75 && arg !== 0) {
 						emoji = ':loud_sound:'
 					}
-					return sendEmbed(message, emoji + ' Volume défini a `' + volume + "%`")
+					return reply(interaction, emoji + ' Volume défini a `' + volume + "%`")
 				}
 			})
 		}
@@ -1675,14 +1665,16 @@ client.on("interactionCreate", async interaction => {
 
 	// restart
 	else if (command === 'restart') {
-		if(interaction.user.id !== ownerId) return replyEphemeral(message, ":x: Seul le propriétaire du bot peut éxécuter cet commande");
+		if(interaction.user.id !== ownerId) return replyEphemeral(interaction, ":x: Seul le propriétaire du bot peut éxécuter cet commande");
+		// await interaction.deferReply()
 
 		async function restartServer() {
-			const msg = await reply(interaction, '<a:loading:914152886856982609> Restarting...', undefined, '#ff7f00');
+			const msg = await reply(interaction, '<a:loading:914152886856982609> Restarting...', undefined, '#ff7f00')
 
 			const data = {
-				messageId: msg.id,
-				channelId: msg.channelId
+				interactionId: msg.id,
+				channelId: msg.channelId,
+				type: msg.type
 			}
 			fs.writeFile("./latestRestart.json", JSON.stringify(data, null, 4), (err) => {});
 			client.user.setActivity('restarting the bot', { type: 'PLAYING' })
@@ -1706,10 +1698,10 @@ client.on("interactionCreate", async interaction => {
 				.setCustomId('restartBtn')
 			)
 
-			interaction.replied ? interaction.message.channel.send({ content: "A server is currently listenning to music, are you sure you want to restart the server ?", components: [row] }).then(msg => {
+			interaction.replied ? interaction.interaction.channel.send({ content: "A server is currently listenning to music, are you sure you want to restart the server ?", components: [row] }).then(msg => {
 				client.on('interactionCreate', async interaction => {
 					if(!interaction.isButton()) return
-					if(interaction.message.id !== msg.id) return;
+					if(interaction.interaction.id !== msg.id) return;
 					if(interaction.customId === 'restartBtn') {
 						if(interaction.user.id !== ownerId) return
 						interaction.deferUpdate()
@@ -1719,7 +1711,7 @@ client.on("interactionCreate", async interaction => {
 			}) : interaction.reply({ content: "A server is currently listenning to music, are you sure you want to restart the server ?", components: [row] }).then(msg => {
 				client.on('interactionCreate', async interaction => {
 					if(!interaction.isButton()) return
-					if(interaction.message.id !== msg.id) return;
+					if(interaction.interaction.id !== msg.id) return;
 					if(interaction.customId === 'restartBtn') {
 						if(interaction.user.id !== ownerId) return
 						interaction.deferUpdate()
@@ -1732,7 +1724,7 @@ client.on("interactionCreate", async interaction => {
 
 	// fetch all server invites
 	else if (command === 'invites') {
-		if(message.author.id !== ownerId) return sendEmbed(message, ':x: Vous n\'avez pas les permissions de faire ceci');
+		if(interaction.author.id !== ownerId) return reply(interaction, ':x: Vous n\'avez pas les permissions de faire ceci');
 
 		await client.guilds.fetch()
 		logger.log()
@@ -1751,8 +1743,8 @@ client.on("interactionCreate", async interaction => {
 	}
 
 	// create an invite link from a server id
-	else if(command === "invite") {
-		if(message.author.id !== ownerId) return sendEmbed(message, ':x: Vous n\'avez pas les permissions de faire ceci');
+	else if(command === "get-invite") {
+		if(interaction.author.id !== ownerId) return reply(interaction, ':x: Vous n\'avez pas les permissions de faire ceci');
 
 		await client.guilds.fetch()
 		const guild = client.guilds.cache.get(args[0]);
@@ -1764,17 +1756,17 @@ client.on("interactionCreate", async interaction => {
 			await channel
 			.createInvite({ maxAge: 0, maxUses: 0 })
 			.then(async (invite) => {
-				message.channel.send(`:white_check_mark: Sucess : **${guild.name}** (${guild.id}) => ${invite.url}`);
+				interaction.channel.send(`:white_check_mark: Sucess : **${guild.name}** (${guild.id}) => ${invite.url}`);
 			}).catch((error) => {
-				sendEmbed(message, `:x: An error uccured : \`\`\`js\n${inspect(error)}\`\`\``)
+				reply(interaction, `:x: An error uccured : \`\`\`js\n${inspect(error)}\`\`\``)
 				logger.log(error);
 			});
-		} else return sendEmbed(message, ":x: Invalid id")
+		} else return reply(interaction, ":x: Invalid id")
 	}
 
 	// admin
 	else if(command === "admin") {
-		if(message.author.id !== ownerId) return sendEmbed(message, ':x: Vous n\'avez pas les permissions de faire ceci');
+		if(interaction.author.id !== ownerId) return reply(interaction, ':x: Vous n\'avez pas les permissions de faire ceci');
 
 		let currentlyListening = new Array;
 		servers.forEach(e => {
@@ -1796,10 +1788,10 @@ client.on("interactionCreate", async interaction => {
 		.setLabel('errors')
 		.setStyle('SECONDARY'))
 
-		message.channel.send({ embeds: [embed], components: [row] }).then(msg => {
+		interaction.channel.send({ embeds: [embed], components: [row] }).then(msg => {
 			client.on('interactionCreate', interaction => {
 				if(!interaction.isButton()) return
-				if(interaction.message.id !== msg.id) return
+				if(interaction.interaction.id !== msg.id) return
 				if(interaction.member.id !== ownerId) return
 
 				if(interaction.customId === "adminErrors") {
@@ -1825,7 +1817,7 @@ client.on("interactionCreate", async interaction => {
 
 	// uptime
 	else if(command === "uptime") {
-		interaction.channel.send(moment(Math.round(process.uptime()*1000)).format("HH[h] MM[m] SS[s]"))
+		interaction.reply(ms(Math.floor(process.uptime()*1000)))
 	}
 
 	// account
@@ -1846,23 +1838,16 @@ client.on("interactionCreate", async interaction => {
 
 	else {
 		if(command === '' || command === ' ') return;
-		return sendEmbed(message, `:x: Commande inconnue, pour aficher toute les commandes, tapez \`${prefix}help\``)
+		return reply(interaction, `:x: Commande inconnue, pour aficher toute les commandes, tapez \`${prefix}help\``)
 	}
 });
 
-client.on('messageCreate', async (message) => {
+client.on('messageCreate', async message => {
 	if (message.author.bot || message.channel.type === 'DM') return;
 	const prefixMention = new RegExp(`^<@!?${client.user.id}>( |)$`)
 
 	if (message.content.match(prefixMention)) {
-		await prefixDb.findById(message.guild.id).then(async (data) => {
-			if (!data) {
-				prefix = defaultPrefix;
-			} else {
-				prefix = data.prefixDb;
-			}
-		});
-		sendEmbed(message, 'Mon préfix sur le serveur est `' + prefix + '`')
+		sendEmbed(message, 'Je fonctionne uniquement avec les commandes (/) !')
 	}
 })
 
@@ -1926,22 +1911,23 @@ client.on("ready", async function () {
 	}
 
 	try {
-		if(restartDb.messageId) {
-			const msg = await client.channels.cache.get(restartDb.channelId).messages.fetch(restartDb.messageId)
-			if(msg?.editedTimestamp) return;
-
+		if(restartDb.interactionId) {
+			const msg = await client.channels.cache.get(restartDb.channelId).interactions.fetch(restartDb.interactionId)
 			const embed = new Discord.MessageEmbed()
 				.setColor('#378805') // orange #ff7f00
 				.setDescription(`<:oui:712306416295084143> Succesfully restarted in ${Date.now() - msg?.createdTimestamp}ms`)
 
-			msg?.edit({ embeds: [ embed ] }).then(() => {
-				return logger.start('Restart state detected, successfully editing message')
+			if(msg?.editedTimestamp) return;
+
+			msg.edit({ embeds: [embed] }).then(() => {
+				return logger.start('Restart state detected, successfully editing interaction')
 			})
+
 		} else {
 			return
 		}
 	} catch (err) {
-		logger.error(err)
+		console.error(err)
 	}
 });
 
@@ -1953,7 +1939,7 @@ client.on('error', (error) => {
 
 process.on("unhandledRejection", (error) => {
 	try {
-		if(error.message.includes('Status code: 410')) return
+		if(error.interaction.includes('Status code: 410')) return
 	} catch {}
 	logger.error(inspect(error));
 	if(inspect(error).length < 1900) error = inspect(error);
