@@ -105,6 +105,18 @@ const commands = [
 		description: "Met la musique en pause ou la résume si elle l'est déjà"
 	},
 	{
+		name: "skip",
+		category: "music",
+		description: "Passe a la musique suivante",
+		options: [
+			{
+				name: "index",
+				description: "Numero de place dans la file d'attente d'une musique",
+				type: 4, required: false
+			}
+		]
+	},
+	{
 		name: "queue",
 		category: "music",
 		description: "Affiche la file d'attente des musiques"
@@ -400,11 +412,17 @@ async function playTrack(interaction, msg, noShift, playAt) {
 
 	let audioPlayer = createAudioPlayer();
 
-	const player = spDl.downloadTrack(server.currentTrack.id, undefined);
+	// const info = await spDl.getInfo(server.currentTrack.url, undefined);
+	// const player = spDl(info.url, {
+	// 	filter: 'audioonly',
+	// 	quality: 'highestaudio'
+	// }) 
+
+	// const player = vdExt.quickExtract.softExtractor(server.currentTrack.url)
 
 	const voiceChannel = interaction.member.voice.channel;
 	const connection = getVoiceConnection(interaction.guild.id);
-	const resource = createAudioResource(player, { inlineVolume: true });
+	const resource = createAudioResource(spDl.downloadTrack(server.currentTrack.url, undefined), { inlineVolume: true });
 	resource.volume.setVolumeLogarithmic(server.currentVol / 100)
 	audioPlayer.play(resource);
 	server.startedDate = Date.now()
@@ -439,7 +457,7 @@ async function playTrack(interaction, msg, noShift, playAt) {
 				})
 			} else {
 				server.tries++;
-				playTack(interaction, `:warning: Une érreur est survenue (essaie ${server.tries}/3)...`)
+				playTrack(interaction, `:warning: Une érreur est survenue (essaie ${server.tries}/3)...`)
 				return setTimeout(() => {
 					server.tries = 0
 				}, 30000)
@@ -789,7 +807,7 @@ client.on("interactionCreate", async interaction => {
 		// 	// 	return reply(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
 		// 	// }
 		// 	// server.currentTrack = server.queue[0];
-		// 	// playTack(interaction).then(() => {
+		// 	// playTrack(interaction).then(() => {
 		// 	// 	reply(interaction, ':information_source: Ajout de `' + result.items.length + '` musiques de `' + result.title + '`')
 		// 	// })
 		// } else {
@@ -1039,7 +1057,44 @@ client.on("interactionCreate", async interaction => {
 	}
 
 	// skip
-	else if (command === "skip" || command === 's') {
+	// else if (command === "skip" || command === 's') {
+	// 	if(server.djOnly.enabled) {
+	// 		if(server.djOnly.role) {
+	// 			await interaction.guild.members.fetch()
+	// 			if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
+	// 				return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
+	// 			}
+	// 		}
+	// 	}
+
+	// 	const voiceConnection = getVoiceConnection(interaction.guild.id);
+	// 	const voiceChannel = interaction.member.voice.channel;
+
+	// 	if (!voiceChannel) {
+	// 		return reply(interaction, userNotInVoiceChannel);
+	// 	}
+
+	// 	if (!voiceConnection) {
+	// 		return reply(interaction, botNotInVoiceChannel)
+	// 	}
+
+	// 	if (!server.queue[0]) {
+	// 		server.currentTrack = {
+	// 			url: "",
+	// 			title: "Rien pour le moment."
+	// 		}
+	// 		return reply(interaction, emptyQueue);
+	// 	}
+
+	// 	server.lastVideo = server.currentTrack
+	// 	server.currentTrack = server.queue[0]
+	// 	server.queue.shift();
+	// 	playTrack(interaction, ":track_next: Musique en cours : `" + server.currentTrack.name + "`", true)
+
+	// }
+
+	// skip
+	else if (command === 'skip') {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
 				await interaction.guild.members.fetch()
@@ -1052,48 +1107,14 @@ client.on("interactionCreate", async interaction => {
 		const voiceConnection = getVoiceConnection(interaction.guild.id);
 		const voiceChannel = interaction.member.voice.channel;
 
-		if (!voiceChannel) {
-			return reply(interaction, userNotInVoiceChannel);
-		}
+		
 
-		if (!voiceConnection) {
-			return reply(interaction, botNotInVoiceChannel)
-		}
+		let index;
 
-		if (!server.queue[0]) {
-			server.currentTrack = {
-				url: "",
-				title: "Rien pour le moment."
-			}
-			return reply(interaction, emptyQueue);
-		}
+		if (!args[0]) index = 1;
+		else index = args[0].value;
 
-		server.lastVideo = server.currentTrack
-		server.currentTrack = server.queue[0]
-		server.queue.shift();
-		playTack(interaction, ":track_next: Musique en cours : `" + server.currentTrack.name + "`", true)
-
-	}
-
-	// skipto
-	else if (command === 'skipto' || command === 'st') {
-		if(server.djOnly.enabled) {
-			if(server.djOnly.role) {
-				await interaction.guild.members.fetch()
-				if(!interaction.member.roles.cache.has(server.djOnly.role.id)) {
-					return reply(interaction, ':x: Vous devez avoir le role `' + server.djOnly.role.name + "` pour pouvoir utiliser cette commande")
-				}
-			}
-		}
-
-		const voiceConnection = getVoiceConnection(interaction.guild.id);
-		const voiceChannel = interaction.member.voice.channel;
-
-		var index = Number(args[0])
-
-		if (index === undefined || index === ' ' || typeof index !== "number") {
-			index = 1
-		}
+		if(index < 1 || index > server.queue.length)
 
 		if (!voiceChannel) {
 			return reply(interaction, userNotInVoiceChannel);
@@ -1111,7 +1132,10 @@ client.on("interactionCreate", async interaction => {
 
 		server.lastVideo = server.currentTrack
 		server.currentTrack = server.queue[index];
-		playTack(interaction, ":track_next: Musique en cours : `" + server.currentTrack.name + "`")
+		playTrack(interaction, "none")
+		await reply(interaction, ":fast_forward: Musique en cours :").then(() => {
+			interaction.channel.send(server.currentTrack.url)
+		})
 		server.queue.splice(0, index);
 	}
 
