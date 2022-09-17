@@ -1922,7 +1922,7 @@ client.on("ready", async function () {
 
 	try {
 		if(restartDb.interactionId) {
-			const msg = await client.channels.cache.get(restartDb.channelId).interactions.fetch(restartDb.interactionId)
+			const msg = await client.channels.cache.get(restartDb.channelId).messages.fetch(restartDb.interactionId)
 			const embed = new Discord.MessageEmbed()
 				.setColor('#378805') // orange #ff7f00
 				.setDescription(`<:oui:712306416295084143> Succesfully restarted in ${Date.now() - msg?.createdTimestamp}ms`)
