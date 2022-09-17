@@ -181,6 +181,11 @@ const commands = [
 		description: "Donne l'uptime du bot"
 	},
 	{
+		name: "site",
+		category: "util",
+		description: "Renvoie le site internet du bot"
+	},
+	{
 		name: "invite",
 		category: "util",
 		description: `Lien d'invitation du bot`
@@ -908,7 +913,7 @@ client.on("interactionCreate", async interaction => {
 			embed = new Discord.MessageEmbed().setTitle(`File d'attente de ${interaction.guild.name}`).setColor('#2f3136');
 
 			if(server.lastTrack.url) {
-				embed.addField('**:track_previous:・ Précédente musique : **', "> [" + server.lastTrack.title + "](" + server.lastTrack.url + ")")
+				embed.addField('**:track_previous:・ Précédente musique : **', "> [" + server.lastTrack.name + "](" + server.lastTrack.url + ")")
 			}
 
 			embed.addField('**:notes:・ En train de jouer : **', "> [" + server.currentTrack.name + "](" + server.currentTrack.url + ")");
