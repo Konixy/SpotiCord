@@ -1909,6 +1909,8 @@ app.post('/api/action/:serverId/info', (req, res) => {
 	}
 })
 
+
+
 app.post('/api/action/:serverId/pause', (req, res) => {
 	const serverId = req.params.serverId
 	const guild = client.guilds.cache.get(req.params.serverId)
