@@ -34,6 +34,7 @@ const Express = require('express');
 const app = Express();
 const mongoose = require('mongoose');
 const ms = require('ms')
+const {request} = require('http')
 
 const database = mongoose.model("guilds", require('./databaseSchema.js'));
 
@@ -52,28 +53,11 @@ const commands = [
 	{
 		name: "ping",
 		category: "util",
-		description: "Renvoie le temp de reponse en *ms* du bot.",
-	},
-	{
-		name: "djonly",
-		category: "util",
-		description: "Permet de configurer le mode dj.",
-		options: [
-			{
-				name: "activer",
-				description: "Active ou pas le mode dj",
-				type: 3, required: false,
-				choices: [
-					{ name: "Oui", value: "true" },
-					{ name: "Non", value: "false" }
-				]
-			}
-		],
-		permissions: ['MANAGE_GUILD']
+		description: "Renvoie le temp de reponse en *ms* du bot",
 	},
 	{
 		name: "help",
-		description: "interaction d'aide"
+		description: "Message d'aide répertoriant toute les commandes disponible"
 	},
 	{
 		name: "play",
@@ -140,6 +124,23 @@ const commands = [
 		name: "leave",
 		category: "music",
 		description: "Quitte le salon vocale et arrête la musique en cours"
+	},
+		{
+		name: "djonly",
+		category: "music",
+		description: "Permet de configurer le mode dj",
+		options: [
+			{
+				name: "activer",
+				description: "Active ou pas le mode dj",
+				type: 3, required: false,
+				choices: [
+					{ name: "Oui", value: "true" },
+					{ name: "Non", value: "false" }
+				]
+			}
+		],
+		permissions: ['MANAGE_GUILD']
 	},
 	{
 		name: "eval",
@@ -242,12 +243,6 @@ const { OpusEncoder } = require('@discordjs/opus');
 const { restart } = require('nodemon');
 const webhook = new Topgg.Webhook("Kr&6dGbqHmBqTK5C")
 
-app.get('/', (req, res) => {
-	res.status(200).send(`${client.user.username} is on !`)
-})
-
-app.listen(config.port)
-
 // change the url in https://top.gg/bot/832356026740637706/webhooks after changing domain name
 
 function decodeEntities(encodedString) {
@@ -299,21 +294,21 @@ function genEmbed(embedTitle, embedDescription, embedColorParam) {
 	return embed;
 }
 
-/**
- * Send an `Discord.MessageEmbed` in the interaction channel
- * @param {Discord.CommandInteraction} interaction
- * @param {String} embedTitle
- * @param {String} embedDescription
- * @param {String} embedColorParam
- */
-function reply(interaction, embedTitle, embedDescription, embedColorParam) {
-	if(!interaction.channel || !embedTitle && !embedDescription) return logger.log('[reply function ERROR] invalid arguments')
-	const embed = new Discord.MessageEmbed()
-	if(embedTitle) embed.setTitle(embedTitle);
-	if(embedColorParam) embed.setColor(embedColorParam); else embed.setColor(embedColor);
-	if(embedDescription) embed.setDescription(embedDescription);
-	return interaction.channel.send({ embeds: [embed] })
-}
+// /**
+//  * Send an `Discord.MessageEmbed` in the interaction channel
+//  * @param {Discord.CommandInteraction} interaction
+//  * @param {String} embedTitle
+//  * @param {String} embedDescription
+//  * @param {String} embedColorParam
+//  */
+// function reply(interaction, embedTitle, embedDescription, embedColorParam) {
+// 	if(!interaction.channel || !embedTitle && !embedDescription) return logger.log('[reply function ERROR] invalid arguments')
+// 	const embed = new Discord.MessageEmbed()
+// 	if(embedTitle) embed.setTitle(embedTitle);
+// 	if(embedColorParam) embed.setColor(embedColorParam); else embed.setColor(embedColor);
+// 	if(embedDescription) embed.setDescription(embedDescription);
+// 	return interaction.channel.send({ embeds: [embed] })
+// }
 
 /**
  * Reply the interaction whith a `Discord.MessageEmbed`
@@ -402,10 +397,13 @@ function writeQueue(guildId) {
 
 }
 
+// const spotDl = require('spot-dl-downloader');
+// const downloader = new spotDl({"cliendId": config.spotifyClientId, "clientSecret": config.spotifyClientSecret}, "./test")
+
 /**
  * Play a Spotify track in the current voice channel
  * @param {Discord.CommandInteraction} interaction 
- * @param {String} msg - Return the String "none" to don't send any interaction
+ * @param {String} msg - Return the String "none" to don't send any message
  * @param {Boolean} noShift 
  * @param {Number} playAt 
  * @returns 
@@ -421,7 +419,7 @@ async function playTrack(interaction, msg, noShift, playAt) {
 	// const player = spDl(info.url, {
 	// 	filter: 'audioonly',
 	// 	quality: 'highestaudio'
-	// }) 
+	// })
 
 	// const player = vdExt.quickExtract.softExtractor(server.currentTrack.url)
 
@@ -472,6 +470,8 @@ async function playTrack(interaction, msg, noShift, playAt) {
 
 	connection.subscribe(audioPlayer);
 
+
+
 	server.dispatcher = audioPlayer;
 	server.connection = connection;
 	server.resource = resource
@@ -498,6 +498,25 @@ async function playTrack(interaction, msg, noShift, playAt) {
 				connection.disconnect()
 			}, 120000)
 		}
+	})
+
+	audioPlayer.on('stateChange', (oldState, newState) => {
+		const request = axios.default.post(
+			config.backendUri + '/api/event/' + interaction.guild.id,
+
+			{
+				event: newState.status,
+				seek: resource.playbackDuration
+			},
+			{
+				headers: {
+					"authCode": config.authCode
+				}
+			}
+			)
+		request.catch(r => {
+			console.log(r.response.data)
+		})
 	})
 
 	connection.on(VoiceConnectionStatus.Disconnected, () => {
@@ -580,10 +599,10 @@ client.on("interactionCreate", async interaction => {
 			resource: null,
 			cooldown: false,
       		timeout: null,
-			currentVol: data.volume,
+			currentVol: 100, // data.volume,
 			tries: 0,
 			djOnly: {
-				enabled: data.djOnly.enabled,
+				enabled: false, // data.djOnly.enabled,
 				role: djOnlyRole || null
 			},
 			startedDate: null,
@@ -597,7 +616,7 @@ client.on("interactionCreate", async interaction => {
 	// ping
 	if (command === "ping") {
 		await interaction.reply({ content: 'Pinging...', fetchReply: true }).then(msg => {
-			interaction.editReply(`Pong 🏓, l'envoie du interaction a pris : **${msg.createdTimestamp - interaction.createdTimestamp} ms**. ${client.ws.ping ? `\nLe ping du serveur websocket est de :** ${Math.round(client.ws.ping)} ms**.` : ''}`)
+			interaction.editReply(`Pong 🏓, l'envoie du message a pris : **${msg.createdTimestamp - interaction.createdTimestamp} ms**. ${client.ws.ping ? `\nLe ping du serveur websocket est de :** ${Math.round(client.ws.ping)} ms**.` : ''}`)
 		})
 	}
 
@@ -1857,7 +1876,49 @@ client.on('messageCreate', async message => {
 	const prefixMention = new RegExp(`^<@!?${client.user.id}>( |)$`)
 
 	if (message.content.match(prefixMention)) {
-		sendEmbed(message, 'Je fonctionne uniquement avec les commandes (/) !')
+		reply(message, 'Je fonctionne uniquement avec les commandes (/).')
+	}
+})
+
+app.get('/', (req, res) => {
+	res.status(200).send(`${client.user.username} is on !`)
+})
+
+app.post('/api/action/:serverId/info', (req, res) => {
+	const serverId = req.params.serverId
+	const guild = client.guilds.cache.get(req.params.serverId)
+	if(guild) {
+		let server;
+		if(!servers.has(serverId)) server = null
+		else server = servers.get(serverId)
+		if(!server) return res.send({sucess: false, message: 'no data for this server'})
+		const data = {
+			sucess: true,
+			currentTrack: server.currentTrack,
+			queue: server.queue,
+			lastTrack: server.lastTrack
+		}
+		if(server)
+		if(server.resource && server.dispatcher) {
+			data.seek = server.resource.playbackDuration
+			data.paused = server.dispatcher.state.status === 'paused' ? true : false
+		}
+		res.send(data)
+	} else {
+		res.send({sucess: false, message: 'invalid id'})
+	}
+})
+
+app.post('/api/action/:serverId/pause', (req, res) => {
+	const serverId = req.params.serverId
+	const guild = client.guilds.cache.get(req.params.serverId)
+	if(guild) {
+		let server;
+		if(!servers.has(serverId)) server = null
+		else server = servers.get(serverId)
+		res.send({sucess: true, message: `Found ${guild.name} and ${server ? server.currentTrack.name : "no music is listenned"}`})
+	} else {
+		res.send({sucess: false, message: 'invalid id'})
 	}
 })
 
@@ -1890,6 +1951,8 @@ client.on("ready", async function () {
 	  })
 	}
 	logger.loader(`Fetched sucessfully in ${Date.now() - date}ms`.yellow)
+
+	app.listen(config.port)
 
 	// var stateStatus = 0;
 	// let statuses = [
@@ -1930,7 +1993,7 @@ client.on("ready", async function () {
 			if(msg?.editedTimestamp) return;
 
 			msg.edit({ embeds: [embed] }).then(() => {
-				return logger.start('Restart state detected, successfully editing interaction')
+				return logger.start('Restart state detected, successfully editing message')
 			})
 
 		} else {
@@ -1959,10 +2022,10 @@ process.on("unhandledRejection", (error) => {
 	// client.users.cache.get(ownerId).send("[ERROR] ```js\n" + error + "\n```")
 })
 
-process.on('exit', async () => {
-	servers.entries().forEach(server => {
-		writeQueue(server[0])
-	})
-})
+// process.on('exit', async () => {
+// 	servers.entries().forEach(server => {
+// 		writeQueue(server[0])
+// 	})
+// })
 
 client.login(config.token);
