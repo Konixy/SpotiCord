@@ -89,6 +89,11 @@ const commands = [
 		description: "Met la musique en pause ou la résume si elle l'est déjà"
 	},
 	{
+		name: "resume",
+		category: "music",
+		description: "Reprend la musique mis en pause"
+	},
+	{
 		name: "skip",
 		category: "music",
 		description: "Passe a la musique suivante",
@@ -1223,7 +1228,7 @@ client.on("interactionCreate", async interaction => {
 	}
 
 	// pause
-	else if (command === 'pause') {
+	else if (command === 'pause' || command === "resume") {
 		if(server.djOnly.enabled) {
 			if(server.djOnly.role) {
 				await interaction.guild.members.fetch()
