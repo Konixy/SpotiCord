@@ -1889,21 +1889,21 @@ app.get('/', (req, res) => {
 	res.status(200).send(`${client.user.username} is on !`)
 })
 
-app.post('/api/action/:serverId/info', (req, res) => {
+app.get('/api/action/:serverId/info', (req, res) => {
 	const serverId = req.params.serverId
 	const guild = client.guilds.cache.get(req.params.serverId)
 	if(guild) {
 		let server;
 		if(!servers.has(serverId)) server = null
 		else server = servers.get(serverId)
-		if(!server) return res.send({sucess: false, message: 'no data for this server'})
+		if(!server) return res.send({success: false, message: 'no data for this server'})
 		const data = {
-			sucess: true,
+			success: true,
 			currentTrack: server.currentTrack,
 			queue: server.queue,
 			lastTrack: server.lastTrack
 		}
-		if(server)
+		
 		if(server.resource && server.dispatcher) {
 			data.seek = server.resource.playbackDuration
 			data.paused = server.dispatcher.state.status === 'paused' ? true : false
