@@ -1910,7 +1910,7 @@ app.get('/api/action/:serverId/info', (req, res) => {
 		}
 		res.send(data)
 	} else {
-		res.send({sucess: false, message: 'invalid id'})
+		res.send({success: false, message: 'invalid id'})
 	}
 })
 
@@ -1923,9 +1923,9 @@ app.post('/api/action/:serverId/pause', (req, res) => {
 		let server;
 		if(!servers.has(serverId)) server = null
 		else server = servers.get(serverId)
-		res.send({sucess: true, message: `Found ${guild.name} and ${server ? server.currentTrack.name : "no music is listenned"}`})
+		res.send({success: true, message: `Found ${guild.name} and ${server ? server.currentTrack.name : "no music is listenned"}`})
 	} else {
-		res.send({sucess: false, message: 'invalid id'})
+		res.send({success: false, message: 'invalid id'})
 	}
 })
 
@@ -1959,7 +1959,9 @@ client.on("ready", async function () {
 	}
 	logger.loader(`Fetched sucessfully in ${Date.now() - date}ms`.yellow)
 
-	app.listen(config.port)
+	app.listen(config.port, () => {
+		logger.start(`Server started on port: `.green + `${config.port}`.white)
+	})
 
 	// var stateStatus = 0;
 	// let statuses = [
