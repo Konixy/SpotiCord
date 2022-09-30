@@ -998,7 +998,7 @@ client.on("interactionCreate", async interaction => {
 
 		const btn3 = new MessageButton()
 		.setStyle('SECONDARY')
-		.setEmoji('🔄')
+		.setEmoji('1025494478225682505')
 		.setCustomId('refresh')
 
 		const btn = new MessageActionRow()
