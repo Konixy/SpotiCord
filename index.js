@@ -506,7 +506,7 @@ async function playTrack(interaction, msg, noShift, playAt) {
 	})
 
 	audioPlayer.on('stateChange', (oldState, newState) => {
-		const request = axios.default.post(
+		axios.default.post(
 			config.backendUri + '/api/event/' + interaction.guild.id,
 
 			{
@@ -518,9 +518,9 @@ async function playTrack(interaction, msg, noShift, playAt) {
 					"authCode": config.authCode
 				}
 			}
-			)
-		request.catch(r => {
-			console.log(r.response.data)
+			).then(r => console.log(r.data))
+			.catch(err => {
+			console.log(err)
 		})
 	})
 
@@ -988,12 +988,12 @@ client.on("interactionCreate", async interaction => {
 
 		const btn1 = new MessageButton()
 		.setStyle('SECONDARY')
-		.setEmoji('⬅️')
+		.setEmoji('1025484316937044009')
 		.setCustomId('pageLeft');
 
 		const btn2 = new MessageButton()
 		.setStyle('SECONDARY')
-		.setEmoji('➡️')
+		.setEmoji('1025487296599957546')
 		.setCustomId('pageRight')
 
 		const btn3 = new MessageButton()

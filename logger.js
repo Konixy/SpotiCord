@@ -1,8 +1,12 @@
 const chalk = require('chalk');
 const moment = require("moment");
 
+function getTimestamp() {
+  return `[${moment().format("DD/MM/YYYY HH:mm:ss")}]`
+}
+
 function log(content) {
-  const timestamp = `[${moment().format("DD/MM/YYYY HH:mm:ss")}]`;
+  const timestamp = getTimestamp();
   if (!content) return;
   console.log(
     `${chalk.cyan(timestamp)} ${chalk.blue("[LOG]")} ${chalk.blue(content)}`
@@ -10,7 +14,7 @@ function log(content) {
 }
 
 function loader(content) {
-  const timestamp = `[${moment().format("DD/MM/YYYY HH:mm:ss")}]`;
+  const timestamp = getTimestamp();
   if (!content) return;
   console.log(
     `${chalk.cyan(timestamp)} ${chalk.yellowBright("[LOADER]")} ${content}`
@@ -18,7 +22,7 @@ function loader(content) {
 }
 
 function error(content) {
-  const timestamp = `[${moment().format("DD/MM/YYYY HH:mm:ss")}]`;
+  const timestamp = getTimestamp();
   if (!content) return;
   console.log(
     `${chalk.cyan(timestamp)} ${chalk.red("[ERROR]")} ${chalk.red(content)}`
@@ -26,7 +30,7 @@ function error(content) {
 }
 
 function warn(content) {
-  const timestamp = `[${moment().format("DD/MM/YYYY HH:mm:ss")}]`;
+  const timestamp = getTimestamp();
   if (!content) return;
   console.log(
     `${chalk.cyan(timestamp)} ${chalk.yellow("[WARN]")} ${chalk.yellow(content)}`
@@ -34,7 +38,7 @@ function warn(content) {
 }
 
 function command(content) {
-  const timestamp = `[${moment().format("DD/MM/YYYY HH:mm:ss")}]`;
+  const timestamp = getTimestamp();
   if (!content) return;
   console.log(
     `${chalk.cyan(timestamp)} ${chalk.magenta("[COMMAND]")} ${content}`
@@ -42,7 +46,7 @@ function command(content) {
 }
 
 function start(content) {
-  const timestamp = `[${moment().format("DD/MM/YYYY HH:mm:ss")}]`;
+  const timestamp = getTimestamp();
   if (!content) return;
   console.log(
     `${chalk.cyan(timestamp)} ${chalk.green(
@@ -52,7 +56,7 @@ function start(content) {
 }
 
 function database(content) {
-  const timestamp = `[${moment().format("DD/MM/YYYY HH:mm:ss")}]`;
+  const timestamp = getTimestamp();
   if (!content) return;
   console.log(
     `${chalk.cyan(timestamp)} ${chalk.green(
