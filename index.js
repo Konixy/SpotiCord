@@ -510,8 +510,13 @@ async function playTrack(interaction, msg, noShift, playAt) {
 			config.backendUri + '/api/event/' + interaction.guild.id,
 
 			{
+				success: true,
 				event: newState.status,
-				seek: resource.playbackDuration
+				seek: resource.playbackDuration,
+				paused: server.dispatcher.state.status === 'paused' ? true : false,
+				currentTrack: server.currentTrack,
+				queue: server.queue,
+				lastTrack: server.lastTrack
 			},
 			{
 				headers: {
@@ -1323,17 +1328,22 @@ client.on("interactionCreate", async interaction => {
 		}
 
 		if (!server.currentTrack.id) {
-			if(!server.lastVideo.url) {
+			if(!server.lastTrack.url) {
 				return reply(interaction, ':x: Aucune musique a rejouer')
 			} else {
-				server.currentTrack = server.lastVideo
+				server.currentTrack = server.lastTrack
 				return playTrack(interaction, ":track_previous: En train de jouer : `" + server.currentTrack.name + "`", true)
 			}
 		}
 
-		server.lastVideo = [server.currentTrack, server.currentTrack = server.lastVideo][0];
+		const lastTrack = server.lastTrack;
+		const currentTrack = server.currentTrack;
+		server.currentTrack = lastTrack
+		server.lastTrack = currentTrack
+		// server.lastTrack = [server.currentTrack, server.currentTrack = server.lastTrack][0];
+		console.log(server.lastTrack, server.currentTrack)
 
-		playTrack(interaction, ":track_previous: En train de jouer : `" + server.currentTrack.name + "`", true)
+		return playTrack(interaction, ":track_previous: En train de jouer : `" + server.currentTrack.name + "`", true)
 	}
 
 	// dj role
@@ -1889,14 +1899,14 @@ app.get('/', (req, res) => {
 	res.status(200).send(`${client.user.username} is on !`)
 })
 
-app.get('/api/action/:serverId/info', (req, res) => {
+function getData(req, res) {
 	const serverId = req.params.serverId
 	const guild = client.guilds.cache.get(req.params.serverId)
 	if(guild) {
 		let server;
 		if(!servers.has(serverId)) server = null
 		else server = servers.get(serverId)
-		if(!server) return res.send({success: false, message: 'no data for this server'})
+		if(!server) return {success: false, message: 'no data for this server'}
 		const data = {
 			success: true,
 			currentTrack: server.currentTrack,
@@ -1908,25 +1918,32 @@ app.get('/api/action/:serverId/info', (req, res) => {
 			data.seek = server.resource.playbackDuration
 			data.paused = server.dispatcher.state.status === 'paused' ? true : false
 		}
-		res.send(data)
+		return data
 	} else {
-		res.send({success: false, message: 'invalid id'})
+		return {success: false, message: 'invalid id'}
 	}
+}
+
+app.get('/api/action/:serverId/info', (req, res) => {
+	res.send(getData(req, res))
 })
 
 
 
 app.post('/api/action/:serverId/pause', (req, res) => {
-	const serverId = req.params.serverId
-	const guild = client.guilds.cache.get(req.params.serverId)
-	if(guild) {
-		let server;
-		if(!servers.has(serverId)) server = null
-		else server = servers.get(serverId)
-		res.send({success: true, message: `Found ${guild.name} and ${server ? server.currentTrack.name : "no music is listenned"}`})
-	} else {
-		res.send({success: false, message: 'invalid id'})
-	}
+	let data = getData(req, res);
+	if(data.success) {
+		if(data.seek || data.paused) {
+			try {
+				const server = servers.get(req.params.serverId)
+				data.paused ? server.dispatcher.unpause() : server.dispatcher.pause()
+			} catch (err) {
+			}
+			data.message = "successfully paused";
+			data.server = undefined;
+			return res.send(data)
+		} else return res.send({success: false, message: "No music is currently playing"})
+	} else return res.send(data)
 })
 
 client.on("ready", async function () {
