@@ -513,7 +513,7 @@ async function playTrack(interaction, msg, noShift, playAt) {
 				success: true,
 				event: newState.status,
 				seek: resource.playbackDuration,
-				paused: server.dispatcher.state.status === 'paused' ? true : false,
+				paused: newState.resource.audioPlayer ? (newState.resource.audioPlayer.state.status === 'paused' ? true : false) : true,
 				currentTrack: server.currentTrack,
 				queue: server.queue,
 				lastTrack: server.lastTrack
