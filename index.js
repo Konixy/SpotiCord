@@ -590,7 +590,7 @@ client.on("interactionCreate", async interaction => {
 	const command = interaction.commandName
 
 	let djOnlyRole = null;
-	if(data.djOnly.enabled) {
+	if(data.djOnly) {
 		await interaction.guild.roles.fetch();
 		djOnlyRole = interaction.guild.roles.cache.get(data.djOnly.roleId)
 	}
