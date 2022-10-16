@@ -1930,7 +1930,7 @@ app.get('/api/action/:serverId/info', (req, res) => {
 
 app.get('/api/guilds', async (req, res) => {
 	await client.guilds.fetch();
-	res.send({success: true, guilds: client.guilds.cache.map(e=>e)})    
+	res.send({success: true, guilds: client.guilds.cache.map(e=>e)})
 })
 
 
